@@ -18,9 +18,9 @@ body {
 }
 
 #whiteboard {
-  width: 80%;
-  height: 80%;
-  position: relative;
+  /* width: 80%; */
+  /* height: 80%; */
+  /* position: relative; */
   background-color: white;
   overflow: hidden;
   display: flex;

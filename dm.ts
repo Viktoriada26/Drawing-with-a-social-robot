@@ -393,7 +393,7 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
     const currentTask = drawingTasks[input.currentTaskIndex];
     const prompt = `Does this drawing contain ${Object.keys(currentTask.labels).join(", ")}? Reply only "true" or "false".`;
     console.log(`Sending binary classification request with prompt: "${prompt}"`);
-    return fetch("https://mltgpu.flov.gu.se:11434/api/generate", {
+    return fetch("http://localhost:11434/api/generate", {
 
    //return fetch("http://localhost:11434/api/generate", {
       method: "POST",
@@ -458,7 +458,7 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
         const prompt = "The user will draw something, and you must determine what it resembles. Respond with a sentence starting with 'I think that the drawing is a {object <preposition> object.} Keep it really simple, like you're talking to a 5-year-old. BE BRIEF.";
 
         console.log(`Sending get description request with prompt: "${prompt}"`);
-        const response = await fetch("https://mltgpu.flov.gu.se:11434/api/generate", {
+        const response = await fetch("http://localhost:11434/api/generate", {
 
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -506,7 +506,7 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
 
 
     get_ollama_models: fromPromise<any, null>(async () => {
-      return fetch("https://mltgpu.flov.gu.se:11434/api/tags").then((response) =>
+      return fetch("http://localhost:11434/api/tags").then((response) =>
 
       //return fetch("http://localhost:11434/api/tags").then((response) =>
         response.json()
@@ -519,7 +519,7 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
         messages : input.prompt,
         temperature : 0.1
       };
-      return fetch("https://mltgpu.flov.gu.se:11434/api/chat", {
+      return fetch("http://localhost:11434/api/chat", {
 
      // return fetch("http://localhost:11434/api/chat", {
         method: "POST",
@@ -567,7 +567,7 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
     },
   
     PromptAndAsk: {
-      initial: "Prompt", //"GetDescription", "GreetUser"
+      initial: "GreetUser", //"GetDescription", "GreetUser"
       on: {
       
     },
