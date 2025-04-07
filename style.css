@@ -9,19 +9,27 @@ body {
   background-color: #f4f4f4;
 }
 
+
+#frame {
+  border: 5px solid #333;
+  padding: 10px; 
+  display: inline-block;
+  margin: 20px; 
+}
+
 #whiteboard {
   width: 80%;
   height: 80%;
   position: relative;
   background-color: white;
-  border: 10px solid #333; 
-  border-radius: 10px;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
+
+
+
 
 #paint {
   width: 100%;
@@ -36,9 +44,22 @@ body {
   gap: 10px;
   padding: 10px;
   background-color: #ddd;
-  border-top: 2px solid #ccc;
+
+  /* border-top: 2px solid #ccc; */
+}
+ 
+
+
+
+.color-button {
+  position: relative;
+  z-index: 3; /* BUTTONS ARE ABOVE EVTH */
 }
 
+
+
+
+/* 
 .color-button {
   padding: 8px 15px;
   border: none;
@@ -47,15 +68,17 @@ body {
   border-radius: 5px;
   color: white;
   transition: 0.3s;
-}
+} */
 
 .red { background-color: red; }
 .green { background-color: green; }
 .blue { background-color: blue; }
 .yellow { background-color: yellow; color: black; }
 .black { background-color: black; }
+.brown {background-color: brown;}
 .erase { background-color: gray; }
 .clear { background-color: white; }
+.capture { background-color: purple; }
 
 .color-button:hover {
   opacity: 0.8;
