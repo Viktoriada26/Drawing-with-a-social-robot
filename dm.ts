@@ -17,8 +17,9 @@ const settings = {
   azureCredentials: azureCredentials,
   asrDefaultCompleteTimeout: 0,
   asrDefaultNoInputTimeout: 5000,
-  locale: "en-US",
-  ttsDefaultVoice: "en-US-AvaNeural", //"el-GR-AthinaNeural",//"en-US-AvaNeural" // en-US-DavisNeural",
+  locale: "el-GR",
+  ttsDefaultVoice: "el-GR-AthinaNeural", 
+  //ttsDefaultVoice: "en-US-AvaNeural", //"el-GR-AthinaNeural",//"en-US-AvaNeural" // en-US-DavisNeural",
 };
 
 /* Grammar definition */
@@ -94,34 +95,169 @@ interface LabelMap {
   building?: boolean;
   left?: boolean;
   description?: string;
+  in? : boolean;
+  inFrontOf? : boolean;
+  behind? :boolean;
+  between? : boolean;
+  obj1? : string; 
+  obj2? : string; 
+  obj3? : string; 
+  relation? : string;
+
 }
 
 interface DrawingTask {
   prompt: string;
+  english: string;
   labels: LabelMap;
+  voice: string;
 }
 
 
 
+//initial tasks
+// const drawingTasks: DrawingTask[] = [
+//   { 
+//     prompt: "Draw a house next to a tree.", 
+//     labels: { house: true, tree: true, nextTo: true }
+//   },
+//   { 
+//     prompt: "Draw an apple under a sun.", 
+//     labels: {apple:true, table:true, under:true}
+//   },
+//   { 
+//     prompt: "Draw an apple on a box.", 
+//     labels: { apple: true, box: true, on: true }
+//   },
+//   { 
+//     prompt: "Draw a sun to the left of a tree.", 
+//     labels: { sun: true, tree: true, left: true }
+//   }
+// ];
+
+
+// const drawingTasks2: DrawingTask[] = [
+//   { 
+//     prompt: "Draw an apple on the box.", 
+//     labels: { apple: true, box: true, on: true }
+//   },
+//   { 
+//     prompt: "Draw an apple in the box.", 
+//     labels: { apple: true, box: true, in: true }
+//   },
+//   { 
+//     prompt: "Draw an apple in front of the box.", 
+//     labels: { apple: true, box: true, inFrontOf: true }
+//   },
+//   { 
+//     prompt: "Draw an apple between the box and the tree.", 
+//     labels: { apple: true, box: true, tree: true, between: true }
+//   },
+//   { 
+//     prompt: "Draw an apple next to the box.", 
+//     labels: { apple: true, box: true, nextTo: true }
+//   },
+//   { 
+//     prompt: "Draw an apple behind the box.", 
+//     labels: { apple: true, box: true, behind: true }
+//   },
+//   { 
+//     prompt: "Draw an apple under the box.", 
+//     labels: { apple: true, box: true, under: true }
+//   }
+// ];
+
+
+
+
+// const drawingTasks: DrawingTask[] = [
+//   { 
+//     prompt: "ένα μήλο πάνω στο κουτί.", 
+//     labels: { apple: true, box: true, on: true }
+//   },
+//   { 
+//     prompt: "ένα μήλο μέσα στο κουτί.", 
+//     labels: { apple: true, box: true, in: true }
+//   },
+//   { 
+//     prompt: "ένα μήλο μπροστά από το κουτί.", 
+//     labels: { apple: true, box: true, inFrontOf: true }
+//   },
+//   { 
+//     prompt: "ένα μήλο ανάμεσα στο κουτί και το δέντρο.", 
+//     labels: { apple: true, box: true, tree: true, between: true }
+//   },
+//   { 
+//     prompt: "ένα μήλο δίπλα στο κουτί.", 
+//     labels: { apple: true, box: true, nextTo: true }
+//   },
+//   { 
+//     prompt: "ένα μήλο πίσω από το κουτί.", 
+//     labels: { apple: true, box: true, behind: true }
+//   },
+//   { 
+//     prompt: "ένα μήλο κάτω από το κουτί.", 
+//     labels: { apple: true, box: true, under: true }
+//   }
+// ];
+
 
 const drawingTasks: DrawingTask[] = [
   { 
-    prompt: "Draw a house next to a tree.", 
-    labels: { house: true, tree: true, nextTo: true }
+    prompt: "ένα μήλο πάνω στο κουτί.", 
+    english: "an apple on the box",
+    labels: { obj1: "apple", obj2: "box", relation: "on" },
+    voice: "el-GR-AthinaNeural" // Greek voice
   },
   { 
-    prompt: "Draw an apple under a sun.", 
-    labels: {apple:true, table:true, under:true}
+    prompt: "ένα μήλο μέσα στο κουτί.", 
+    english: "an apple in the box",
+    labels: { obj1: "apple", obj2: "box", relation: "in" },
+    //labels: { apple: true, box: true, in: true },
+    voice: "el-GR-AthinaNeural" 
   },
   { 
-    prompt: "Draw an apple on a box.", 
-    labels: { apple: true, box: true, on: true }
+    prompt: "ένα μήλο μπροστά από το κουτί.", 
+    english: "an apple in front of the box",
+    labels: { obj1: "apple", obj2: "box", relation: "in front of" },
+    //labels: { apple: true, box: true, inFrontOf: true },
+    voice: "el-GR-AthinaNeural" 
   },
   { 
-    prompt: "Draw a sun to the left of a tree.", 
-    labels: { sun: true, tree: true, left: true }
+    prompt: "ένα μήλο ανάμεσα στο κουτί και το δέντρο.", 
+    english: "an apple between the box and the tree",
+    labels: { obj1: "apple", obj2: "box", obj3: "tree", relation: "between" },
+    //labels: { apple: true, box: true, tree: true, between: true },
+    voice: "el-GR-AthinaNeural" 
+  },
+  { 
+    prompt: "ένα μήλο δίπλα στο κουτί.", 
+    english: "an apple next to the box",
+    labels: { obj1: "apple", obj2: "box", relation: "next to" },
+   // labels: { apple: true, box: true, nextTo: true },
+    voice: "el-GR-AthinaNeural"
+  },
+  { 
+    prompt: "ένα μήλο πίσω από το κουτί.", 
+    english: "an apple behind the box",
+    labels: { obj1: "apple", obj2: "box", relation: "behind" },
+    //labels: { apple: true, box: true, behind: true },
+    voice: "el-GR-AthinaNeural" 
+  },
+  { 
+    prompt: "ένα μήλο κάτω από το κουτί.", 
+    english: "an apple under the box",
+    labels: { obj1: "apple", obj2: "box", relation: "under" },
+    //labels: { apple: true, box: true, under: true },
+    voice: "el-GR-AthinaNeural" 
   }
 ];
+
+
+
+
+
+
 
 
 // const drawingTasks2 = [
@@ -199,6 +335,7 @@ interface MyDMContext extends DMContext {
   }[];
   isCorrect: boolean;
 
+
   
 }
 
@@ -245,7 +382,7 @@ interface Message {
 const dmMachine = setup({
   types: {} as {
     context: MyDMContext;
-    events: SpeechStateExternalEvent | { type: "CLICK" } | { type: "IMAGE_CAPTURED"; image: string  } | {type: "PAINT"; image: string};
+    events: SpeechStateExternalEvent | { type: "CLICK" } | { type: "IMAGE_CAPTURED"; image: string ; } | {type: "PAINT"; image: string};
   },
   
   
@@ -379,6 +516,72 @@ const dmMachine = setup({
 // ),
 
 
+getBinaryClassification: fromPromise<any, { model: string; image: string; currentTaskIndex: number }>(
+  ({ input }) => {
+    const currentTask = drawingTasks[input.currentTaskIndex];
+    const { obj1, obj2, relation, obj3 } = currentTask.labels;
+
+    const prompt = `You will be shown a drawing. Evaluate if it correctly matches the given description. 
+
+Description: "${currentTask.english}"
+Respond ONLY with a raw JSON object and nothing else.
+Do NOT include any commentary, explanation, or text after the JSON.
+Do NOT use code blocks or wrap the JSON in triple backticks.
+
+Answer the following questions:
+1. Is the following sentence correctly describing the image: "${currentTask.english}"?
+2. Is this correct: the picture contains "${obj1}"?
+3. Is this correct: the picture contains "${obj2}"?
+4. Is this correct: the picture contains a relation "${relation}" between "${obj1}" and "${obj2}"${obj3 ? ` and "${obj3}"` : ""}?
+
+Please reply with a JSON object:
+{
+  "sentence": true/false,
+  "obj1": true/false,
+  "obj2": true/false,
+  "relation": true/false
+}
+
+
+`;
+
+    return fetch("http://localhost:11434/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        stream: false,
+        temperature: 4, 
+        model: input.model,
+        prompt: prompt,
+        images: [input.image],
+      }),
+    })
+      .then((response) => response.json())
+      .then((text) => {
+        console.log("Raw model response:", text.response);
+
+        const cleaned = text.response
+          .replace(/^```json\s*/i, "")
+          .replace(/^```/, "")
+          .replace(/```$/, "")
+          .trim();
+
+        try {
+          const result = JSON.parse(cleaned);
+          return result;
+        } catch (e) {
+          console.error("Invalid JSON response from model:", e);
+          return { sentence: false, obj1: false, obj2: false, relation: false };
+        }
+      })
+      .catch((error) => {
+        console.error("Error classification:", error);
+        return { sentence: false, obj1: false, obj2: false, relation: false };
+      });
+  }
+),
+
+
 
 
     
@@ -388,14 +591,14 @@ const dmMachine = setup({
 
 
 
-getBinaryClassification: fromPromise<any, { model: string; image: string; currentTaskIndex: number }>(
+getBinaryClassificationworks: fromPromise<any, { model: string; image: string; currentTaskIndex: number }>(
   ({ input }) => {
     const currentTask = drawingTasks[input.currentTaskIndex];
-    const prompt = `Does this drawing contain ${Object.keys(currentTask.labels).join(", ")}? Reply only "true" or "false".`;
+    const prompt = `Does this drawing contain ${currentTask.english}? Reply only "true" or "false".`;
     console.log(`Sending binary classification request with prompt: "${prompt}"`);
-    return fetch("http://localhost:11434/api/generate", {
+   // return fetch("http://mltgpu.flov.gu.se:11434/api/generate", {
 
-   //return fetch("http://localhost:11434/api/generate", {
+  return fetch("http://localhost:11434/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -452,17 +655,21 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
 
 
 
-    getDescription: fromPromise<any, { model: string; image: string }>(
+    getDescription: fromPromise<any, { model: string; image: string; /* currentTaskIndex: number; */ }>(
       async ({ input }) => {
         console.log(`Sending image to ${input.model} for description...`);
-        const prompt = "The user will draw something, and you must determine what it resembles. Respond with a sentence starting with 'I think that the drawing is a {object <preposition> object.} Keep it really simple, like you're talking to a 5-year-old. BE BRIEF.";
+       // const currentTask = drawingTasks[input.currentTaskIndex];
+        //const { obj1, obj2, relation, obj3 } = currentTask.labels;
+        const prompt = `The user will draw something, and you must determine what it resembles. Respond with a sentence starting with 'I think that the drawing is a object1 <relation> object2}.} Keep it really simple, like you're talking to a 5-year-old. BE BRIEF.`;
 
         console.log(`Sending get description request with prompt: "${prompt}"`);
         const response = await fetch("http://localhost:11434/api/generate", {
+          //const response = await fetch("http://mltgpu.flov.gu.se:11434/api/generate", {
 
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            temperature: 4,
             model: "llava:34b",//"llava:13b",
             prompt: prompt,
             //prompt:  "Does this drawing show a house next to a tree? ONLY IF THE DRAWING DEPICTS A HOUSE NEXT TO A TREE correctly, use the words 'house', 'tree', and 'next to' together. If it's wrong, just say 'not yet correct'. Keep it really simple, like you're talking to a 5-year-old. BE BRIEF, JUST ANSWER THE QUESTION.",         
@@ -506,9 +713,9 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
 
 
     get_ollama_models: fromPromise<any, null>(async () => {
-      return fetch("http://localhost:11434/api/tags").then((response) =>
+      //return fetch("http://mltgpu.flov.gu.se:11434/api/tags").then((response) =>
 
-      //return fetch("http://localhost:11434/api/tags").then((response) =>
+      return fetch("http://localhost:11434/api/tags").then((response) =>
         response.json()
       );
     }),    
@@ -519,9 +726,9 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
         messages : input.prompt,
         temperature : 0.1
       };
-      return fetch("http://localhost:11434/api/chat", {
+     // return fetch("http://mltgpu.flov.gu.se:11434/api/chat", {
 
-     // return fetch("http://localhost:11434/api/chat", {
+    return fetch("http://localhost:11434/api/chat", {
         method: "POST",
         body: JSON.stringify(body),
       }).then((response) => response.json());
@@ -567,7 +774,7 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
     },
   
     PromptAndAsk: {
-      initial: "GreetUser", //"GetDescription", "GreetUser"
+      initial: "Prompt", //"GetDescription", "GreetUser"
       on: {
       
     },
@@ -580,7 +787,12 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
         Prompt: {
           entry: {
             type: "speechstate_speak",
-            params: { value: ` Welcome to our world of drawing and learning. Today, we are going to discuss about prepositions, but first of all tell me your name` },
+            params: { 
+              value: ` Welcome to our world of drawing and learning. Today, we are going to discuss about prepositions, but first of all tell me your name`, 
+              voice: "en-US-AvaNeural",
+              locale: "en-US",
+
+            },
           },
           on: { SPEAK_COMPLETE: "ListenTheName" },
         },
@@ -618,6 +830,8 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
           type: "speechstate_speak",
           params: ({ context }) => ({
           value: `Nice to meet you ${context.name}! Let's start drawing and learning prepositions. You are drawing and I will tell you if it's correct!.`,
+          locale: "en-US",
+          voice: "en-US-AvaNeural" ,
           }),
         },
         on: { SPEAK_COMPLETE: "AskUserToDraw"}, //"WaitBeforeCapture1" },
@@ -652,7 +866,12 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
             type: "speechstate_speak",
             params: ({ context }) => {
               const currentTask = drawingTasks[context.currentTaskIndex];
-              return { value: currentTask.prompt };
+
+              return {
+                value: currentTask.prompt,
+                voice: currentTask.voice ?? "en-US-AvaNeural" 
+              };
+             //return { value: currentTask.prompt };
             }
           }
         ],
@@ -723,7 +942,61 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
           },
         },
 
+
         GetBinaryClassification: {
+          invoke: {
+            src: "getBinaryClassification",
+            input: ({ context }) => {
+              if (!context.image64 || context.currentTaskIndex === undefined) {
+                console.error("No image captured or task index not defined!"); 
+                return { model: "llava:13b", image: "", currentTaskIndex: -1 };  
+              }
+              console.log("Base64:", context.image64.substring(0, 30) + "..."); 
+              return { 
+                model: "llava:34b", 
+                image: context.image64, 
+                currentTaskIndex: context.currentTaskIndex 
+              };
+            },
+        
+            onDone: {
+              target: "DescribeDrawing", 
+              actions: assign(({ event }) => {
+                const result = event.output;
+                
+                console.log("Binary Classification Result:", result); 
+                
+                const isMatch = result?.sentence === true &&
+                                result?.obj1 === true &&
+                                result?.obj2 === true &&
+                                result?.relation === true;
+                                (result?.obj3 === undefined || result?.obj3 === true);
+
+        
+                return {
+                  isCorrect: isMatch, 
+                  messages: [
+                    { 
+                      role: "assistant", 
+                      content: isMatch 
+                        ? "I think this is the correct drawing. Well done!" 
+                        : randomRepeat(negativeFeedback), // Add feedback accordingly
+                      locale: "en-US", 
+                      voice: "en-US-AvaNeural",
+                    },
+                  ],
+                };
+              }),
+            },
+          },
+        },
+        
+
+
+
+
+
+        GetBinaryClassificationWORKS: {
           invoke: {
             src: "getBinaryClassification",
             input: ({ context }) => {
@@ -742,6 +1015,7 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
             onDone: {
               target: "DescribeDrawing", //"CheckIfCorrect",
               actions: assign(({ event }) => {
+
                 console.log("Binary Classification Result:", event.output?.isMatch);
         
                 return {
@@ -751,7 +1025,9 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
                       role: "assistant", 
                       content: event.output?.isMatch 
                         ? "I think this is the correct drawing. Well done!" 
-                        : randomRepeat(negativeFeedback), //"I don't think this is the correct drawing. Try again!" 
+                        : randomRepeat(negativeFeedback), //"I don't think this is the correct drawing. Try again!"
+                        locale: "en-US", 
+                        voice: "en-US-AvaNeural",
                     },
                   ],
                 };
@@ -783,7 +1059,7 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
           always: [
             {
               guard: ({ context }) => context.currentTaskIndex < drawingTasks.length,
-              target: "AskUserToDraw", // Start next task
+              target: "AskUserToDraw", 
             },
             {
               guard: ({ context }) => context.currentTaskIndex >= drawingTasks.length,
@@ -844,6 +1120,8 @@ getBinaryClassification: fromPromise<any, { model: string; image: string; curren
         type: "speechstate_speak",
         params: ({ context }) => ({
           value: context.messages[context.messages.length - 1].content,
+          locale: "en-US",
+          voice: "en-US-AvaNeural",
         }),
       },
       on: { SPEAK_COMPLETE: "CheckIfCorrect"},//"WaitBeforeCapture2" },
