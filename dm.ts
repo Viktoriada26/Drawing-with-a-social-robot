@@ -4,6 +4,8 @@ import { createBrowserInspector } from "@statelyai/inspect";
 import { KEY } from "./azure";
 
 
+
+
 const inspector = createBrowserInspector();
 
 const azureCredentials = {
@@ -21,6 +23,16 @@ const settings = {
   ttsDefaultVoice: "el-GR-AthinaNeural", 
   //ttsDefaultVoice: "en-US-AvaNeural", //"el-GR-AthinaNeural",//"en-US-AvaNeural" // en-US-DavisNeural",
 };
+
+interface Frame {
+  time: number;
+  params: any;
+}
+
+interface Animation {
+  FrameIndex: number;
+  BlendShapes: number[][];
+}
 
 /* Grammar definition */
 // interface Grammar {
@@ -334,6 +346,7 @@ interface MyDMContext extends DMContext {
     labels: Record<string, boolean>; 
   }[];
   isCorrect: boolean;
+  currentPrompt: string;
 
 
   
@@ -348,6 +361,7 @@ interface DMContext {
   detectedObjects: Record<string, boolean>; 
   drawingTasks: Array<{ prompt: string, labels: Record<string, boolean> }>;
   isCorrect: boolean;
+  currentPrompt: string;
 
 
 }
@@ -356,6 +370,68 @@ interface Message {
   role: "assistant" | "user" | "system";
   content: string;
 }
+
+const FURHATURI = "localhost:8181/http://127.0.0.1:54321"    //"192.168.1.11:54321"; //"127.0.0.1:54321"; 
+
+  async function fhSay(text: string) {
+  const myHeaders = new Headers();
+  myHeaders.append("accept", "application/json");
+  const encText = encodeURIComponent(text);
+  return fetch(`http://${FURHATURI}/furhat/say?text=${encText}&blocking=true`, {
+    method: "POST",
+    headers: myHeaders,
+    body: "",
+  });
+}
+
+
+async function fhVoiceChange(voice: string) {
+  const myHeaders = new Headers();
+  myHeaders.append("accept", "application/json");
+  const encText = encodeURIComponent(voice); 
+  return fetch(`http://${FURHATURI}/furhat/voice?name=${encText}`, {
+    method: "POST",
+    headers: myHeaders,
+    body: "",
+  })
+}
+
+
+// Function to send logs to Flask API
+async function logToAPI(message: string) {
+  try {
+    const response = await fetch('http://localhost:5000/log-message', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message }), // Send message as JSON
+    });
+
+    const result = await response.json();
+    console.log('Log sent successfully:', result);
+  } catch (error) {
+    console.error('Error sending log:', error);
+  }
+}
+
+
+
+  const fhFetch = async (frames:any) => {
+    return fetch(
+      `http://localhost:8181/http://192.168.1.11:54321/furhat/gesture?blocking=false`,    //remote "127.0.0.1:54321"; //real "192.168.1.11:54321";
+
+      {
+        method: "POST",
+        headers: { accept: "application/json", origin: "localhost" },
+        body: JSON.stringify({
+          name: "Viseme",
+          frames: frames,
+          class: "furhatos.gestures.Gesture",
+        }),
+      }
+    );
+  };
 
 // interface MyDMContext extends DMContext {
 //   noinputCounter: number;
@@ -382,7 +458,7 @@ interface Message {
 const dmMachine = setup({
   types: {} as {
     context: MyDMContext;
-    events: SpeechStateExternalEvent | { type: "CLICK" } | { type: "IMAGE_CAPTURED"; image: string ; } | {type: "PAINT"; image: string};
+    events: SpeechStateExternalEvent | { type: "CLICK" } | { type: "IMAGE_CAPTURED"; image: string ; } | {type: "PAINT"; image: string} | { type: "FURHAT_BLENDSHAPES"; value: Frame[] };
   },
   
   
@@ -434,8 +510,16 @@ const dmMachine = setup({
     speechstate_prepare: ({ context }) =>
       context.ssRef.send({ type: "PREPARE" }),
     speechstate_listen: ({ context }) => context.ssRef.send({ type: "LISTEN" }),
-    speechstate_speak: ({ context }, params: { value: string }) =>
-      context.ssRef.send({ type: "SPEAK", value: { utterance: params.value } }),
+    speechstate_speak: ({ context }, params: { value: string; voice?: string; locale?: string; }) =>
+      context.ssRef.send({ type: "SPEAK", value: { 
+        utterance: params.value,
+        voice: params.voice,
+        locale: params.locale,
+        visemes: true,
+      }}),
+
+   // speechstate_speak: ({ context }, params: { value: string }) =>
+     // context.ssRef.send({ type: "SPEAK", value: { utterance: params.value } }),
       debug: (event) => console.debug(event),
     assign_noinputCounter: assign(({ context }, params?: { value: number }) => {
       if (!params) {
@@ -454,7 +538,33 @@ const dmMachine = setup({
   },
 
   
+
+  
   actors: {
+
+    fhBlendShape: fromPromise<any, { frames: Frame[] }>(({ input }) => {
+      return fhFetch(input.frames);
+    }),
+
+
+    fhSpeak: fromPromise<any, { text: string}>(async ({ input }) => {
+      return Promise.all([
+        fhSay(input.text),
+      ]);
+    }),
+
+
+    fhChangeVoice: fromPromise<any, {voice: string, character: string}>(async ({input}) => {
+      return Promise.all([
+       fhVoiceChange(input.voice),
+    
+
+      ])
+     }),
+
+
+    
+
 
 
   //   checkObjects: fromPromise<any, { model: string; image: string; currentTaskIndex: number; }>(
@@ -568,16 +678,26 @@ Please reply with a JSON object:
 
         try {
           const result = JSON.parse(cleaned);
+          
+
+
+          fetch("http://127.0.0.1:5000/log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+          prompt: currentTask.prompt,  
+          log: result                
+  })
+});
+
+
           return result;
         } catch (e) {
           console.error("Invalid JSON response from model:", e);
           return { sentence: false, obj1: false, obj2: false, relation: false };
         }
       })
-      .catch((error) => {
-        console.error("Error classification:", error);
-        return { sentence: false, obj1: false, obj2: false, relation: false };
-      });
+
   }
 ),
 
@@ -652,6 +772,8 @@ getBinaryClassificationworks: fromPromise<any, { model: string; image: string; c
         img.src = `img/${input}`;
       },
     ),
+
+
 
 
 
@@ -745,6 +867,7 @@ getBinaryClassificationworks: fromPromise<any, { model: string; image: string; c
     detectedObjects: {},
     description: "",
     isCorrect: false,
+    currentPrompt: "",
     // drawingTasks1: [
     //   { prompt: "Draw a house next to a tree.", elements: { house: true, tree: true, nextTo: true, cat: false, table: false } },
     //   { prompt: "Draw a cat under a table.", elements: { cat: true, table: true, under: true, house: false, tree: false } },
@@ -763,7 +886,64 @@ getBinaryClassificationworks: fromPromise<any, { model: string; image: string; c
       entry: [{ type: "speechstate_prepare" }],
       on: { ASRTTS_READY: "WaitToStart" },
     },
-    WaitToStart: {
+
+
+
+
+    // WaitToStart: {
+    //   on: {
+    //     CLICK: {
+    //      // actions: "encode_image",    // CAPTURE BUTTON
+    //       target: "Main",   // DESCRIPTION
+    //   },
+    //     //CLICK: "PromptAndAsk",
+    //   },
+    // },
+
+    // Main: {
+    //   type: "parallel", 
+    //   states: {
+    //   FurhatGestures: {
+    //     initial: "Idle",
+    //     on: {
+    //       FURHAT_BLENDSHAPES: {
+    //         target: ".Animating",
+    //         reenter: true,
+    //       },
+    //     },
+
+
+    //     states: {
+    //       Idle: {},
+    //       Animating: {
+    //         invoke: {
+    //           id: "vis",
+    //           src: "fhBlendShape",
+    //           input: ({ event }) => ({
+    //             frames: (event as any).value,
+    //           }),
+    //         },
+    //       },
+    //     },
+    //   },
+      
+    
+  
+    // PromptAndAsk: {
+    //   initial: "Prompt", //"GetDescription", "GreetUser"
+    //   on: {
+      
+    // },
+    //   states: {
+
+
+
+
+
+
+
+  
+ WaitToStart: {
       on: {
         CLICK: {
          // actions: "encode_image",    // CAPTURE BUTTON
@@ -782,13 +962,29 @@ getBinaryClassificationworks: fromPromise<any, { model: string; image: string; c
 
 
   
+Prompt: {
+  invoke: {
+    src: "fhSpeak",
+    input: ({
+      text: `Welcome to our world of drawing and learning. Today, we are going to discuss about prepositions, but first of all tell me your name.`
+    }),
+    onDone: {
+      target: "ListenTheName"
+    },
+    
+  }
+},
 
 
-        Prompt: {
+
+
+
+
+        PromptWORKS: {
           entry: {
             type: "speechstate_speak",
             params: { 
-              value: ` Welcome to our world of drawing and learning. Today, we are going to discuss about prepositions, but first of all tell me your name`, 
+              value: `<mstts:viseme type="FacialExpression"/> Welcome to our world of drawing and learning. Today, we are going to discuss about prepositions, but first of all tell me your name`, 
               voice: "en-US-AvaNeural",
               locale: "en-US",
 
@@ -823,52 +1019,113 @@ getBinaryClassificationworks: fromPromise<any, { model: string; image: string; c
         },
 
 
+        GreetUser: {
+          invoke: {
+            src: "fhSpeak",
+            input: ({ context }) => ({
+              text: `Nice to meet you ${context.name}! Let's start drawing and learning prepositions. You are drawing and I will tell you if it's correct!`
+            }),
+            onDone: {
+              target: "AskUserToDraw"
+            },
+          
+          }
+        },
+        
 
 
 
-        GreetUser: {entry: {
+        GreetUserWorks: {entry: {
           type: "speechstate_speak",
           params: ({ context }) => ({
-          value: `Nice to meet you ${context.name}! Let's start drawing and learning prepositions. You are drawing and I will tell you if it's correct!.`,
+          value: `<mstts:viseme type="FacialExpression"/>Nice to meet you ${context.name}! Let's start drawing and learning prepositions. You are drawing and I will tell you if it's correct!.`,
           locale: "en-US",
           voice: "en-US-AvaNeural" ,
           }),
         },
-        on: { SPEAK_COMPLETE: "AskUserToDraw"}, //"WaitBeforeCapture1" },
+        on: { SPEAK_COMPLETE: "ChangeToGreekVoice"},//"AskUserToDraw"}, //"WaitBeforeCapture1" },
       },
 
 
-      AskUserToDraw1: {
-        entry: [
-          ({ context }) => {
-            const currentTask = drawingTasks[context.currentTaskIndex];
-            console.log("Entering AskUserToDraw with task:", currentTask.prompt); 
+
+      ChangeToGreekVoice: {
+        invoke: {
+          src: "fhChangeVoice",
+          input: () => ({
+            voice: "Dimitris22k_HQ",
+            character: "default" // use the correct character name if you have one
+          }),
+          onDone: { target: "AskUserToDraw" },
+        }
+      },
+
+
+
+      AskUserToDraw: {
+  entry: [
+    assign(({ context }) => {
+      const currentTask = drawingTasks[context.currentTaskIndex];
+      return {
+        ...context,
+        currentPrompt: currentTask.prompt
+      };
+    }),
+    ({ context }) => {
+      console.log("Entering AskUserToDraw with task:", context.currentPrompt);
+    }
+  ],
+  invoke: {
+    src: "fhSpeak",
+    input: ({ context }) => ({
+      text: context.currentPrompt
+    }),
+    onDone: { target: "WaitBeforeCapture1" }
+  }
+},
+
+      
+      
+
+      AskUserToDrawIMPORTANT: {
+        entry: ({ context }) => {
+          const currentTask = drawingTasks[context.currentTaskIndex];
+          console.log("Entering AskUserToDraw with task:", currentTask.prompt);
+        },
+        invoke: {
+          src: "fhSpeak",
+          input: ({ context }) => {
+            const task = drawingTasks[context.currentTaskIndex];
+            return {
+              text: task.prompt
+            };
           },
-          {
-            type: "speechstate_speak",
-            params: ({ context }) => {
-              const currentTask = drawingTasks[context.currentTaskIndex];
-              return { value: currentTask.prompt };
-            }
-          }
-        ],
-        on: { SPEAK_COMPLETE: "WaitBeforeCapture1" }
+          onDone: { target: "WaitBeforeCapture1" },
+        }
       },
       
 
-      AskUserToDraw: {
+
+
+    
+
+
+
+      AskUserToDrawWORKS: {
         entry: [
           ({ context }) => {
             const currentTask = drawingTasks[context.currentTaskIndex];
             console.log("Entering AskUserToDraw with task:", currentTask.prompt); 
           },
           {
+            
             type: "speechstate_speak",
             params: ({ context }) => {
               const currentTask = drawingTasks[context.currentTaskIndex];
 
               return {
-                value: currentTask.prompt,
+                value: `<mstts:viseme type="FacialExpression"/>${currentTask.prompt}`,
+
+                //value: currentTask.prompt,
                 voice: currentTask.voice ?? "en-US-AvaNeural" 
               };
              //return { value: currentTask.prompt };
@@ -899,10 +1156,11 @@ getBinaryClassificationworks: fromPromise<any, { model: string; image: string; c
           entry: [
             "encode_image", 
             () => {
-              console.log("Encoded image, transitioning to GetDescription...");
+              //console.log("Encoded image, transitioning to GetDescription...");
             },
           ],
-          after:{ 100: "GetDescription" }, //  DELAY BEFORE TRANSITION
+          after:{ 100: "GetBinaryClassification" },
+         // after:{ 100: "GetDescription" }, //  DELAY BEFORE TRANSITION
         },
 
 
@@ -977,10 +1235,15 @@ getBinaryClassificationworks: fromPromise<any, { model: string; image: string; c
                   isCorrect: isMatch, 
                   messages: [
                     { 
-                      role: "assistant", 
+                      role: "assistant",
+                      // content: isMatch
+                      // ? `<speak><mstts:viseme type="FacialExpression"/>I think this is the correct drawing. Well done!</speak>`
+                      // : `<speak><mstts:viseme type="FacialExpression"/>${randomRepeat(negativeFeedback)}</speak>`,
+                      // locale: "en-US",
+                      // voice: "en-US-AvaNeural", 
                       content: isMatch 
                         ? "I think this is the correct drawing. Well done!" 
-                        : randomRepeat(negativeFeedback), // Add feedback accordingly
+                        : randomRepeat(negativeFeedback), 
                       locale: "en-US", 
                       voice: "en-US-AvaNeural",
                     },
@@ -1115,7 +1378,18 @@ getBinaryClassificationworks: fromPromise<any, { model: string; image: string; c
         // },
         
 
-    DescribeDrawing: {
+  DescribeDrawing: {
+    invoke: {
+    src: "fhSpeak",
+    input: ({ context }) => ({
+      text: context.messages[context.messages.length - 1].content
+    }),
+    onDone: { target: "CheckIfCorrect" },
+  }
+},
+
+
+    DescribeDrawingWORKS: {
       entry: {
         type: "speechstate_speak",
         params: ({ context }) => ({
@@ -1577,7 +1851,10 @@ Listen: {},
   },
 },
   }
-});
+},
+  //}, //για το αρχικο χωρις φερχατ δεν θελει 2 αγκυλες 
+//}
+);
 
 
 
@@ -1594,8 +1871,28 @@ dmActor.subscribe((state) => {
   console.debug(state.context);
 });
 
+
+// export function setupButton(element: HTMLElement) {
+//   element.addEventListener("mousedown", (event) => {
+//     if (event.button === 0) {
+//       dmActor.send({ type: "CLICK" });
+//     }
+//   });
+
+//   element.addEventListener("contextmenu", (event) => {
+//     event.preventDefault();
+//   });
+
+//   dmActor.getSnapshot().context.ssRef.subscribe((snapshot) => {
+//     const meta = Object.values(snapshot.getMeta())[0];
+//     element.innerHTML = `${(meta as any).view}`;
+//   });
+// }
+
+
+
 export function setupButton(element: HTMLElement) {
-  element.addEventListener("click", () => {
+  element.addEventListener("click", () => {   
     dmActor.send({ type: "CLICK" });
   });
   dmActor.getSnapshot().context.ssRef.subscribe((snapshot) => {
