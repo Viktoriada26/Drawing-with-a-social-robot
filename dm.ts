@@ -6,6 +6,8 @@ import { KEY } from "./azure";
 
 
 
+
+
 const inspector = createBrowserInspector();
 
 const azureCredentials = {
@@ -36,8 +38,15 @@ interface Frame {
 
 
 
-
-
+function createSessionId(length = 8) {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let result = "";
+  for(let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+}
+const sessionid = createSessionId();
 
 
 function captureCanvasImage(): string {
@@ -271,10 +280,12 @@ interface MyDMContext extends DMContext {
   description: string;
   drawingTasks: { // 
     prompt: string; 
-    labels: Record<string, boolean>; 
+    labels: LabelMap;
+    //labels: Record<string, boolean>; 
   }[];
   isCorrect: boolean;
   currentPrompt: string;
+  session_id:string;
 
 
   
@@ -287,9 +298,10 @@ interface DMContext {
   prompt?: string;
   currentTaskIndex: number;
   detectedObjects: Record<string, boolean>; 
-  drawingTasks: Array<{ prompt: string, labels: Record<string, boolean> }>;
+  drawingTasks: Array<{ prompt: string,  labels: LabelMap/* labels: Record<string, boolean >*/ }>;
   isCorrect: boolean;
   currentPrompt: string;
+  session_id:string;
 
 
 }
@@ -299,7 +311,7 @@ interface Message {
   content: string;
 }
 
-const FURHATURI = "localhost:8181/http://127.0.0.1:54321"    //"192.168.1.11:54321"; //"127.0.0.1:54321"; 
+const FURHATURI = "localhost:8181/http://192.168.1.11:54321"    //"192.168.1.11:54321"; //"127.0.0.1:54321"; 
 
   async function fhSay(text: string) {
   const myHeaders = new Headers();
@@ -345,12 +357,29 @@ async function fhVoiceChange(voice: string) {
     );
   };
 
+type DMEvents =
+  | SpeechStateExternalEvent
+  | { type: "CLICK" }
+  | { type: "IMAGE_CAPTURED"; image: string }
+  | { type: "PAINT"; image: string }
+  | { type: "FURHAT_BLENDSHAPES"; value: Frame[] }
+  | { type: "EVALUATION_RECEIVED"; data: { result: "correct" | "wrong" } };
 
 const dmMachine = setup({
   types: {} as {
     context: MyDMContext;
-    events: SpeechStateExternalEvent | { type: "CLICK" } | { type: "IMAGE_CAPTURED"; image: string ; } | {type: "PAINT"; image: string} | { type: "FURHAT_BLENDSHAPES"; value: Frame[] };
+    events: DMEvents;
   },
+
+
+
+// const dmMachine = setup({
+//   types: {} as {
+//     context: MyDMContext;
+//     events: SpeechStateExternalEvent | { type: "CLICK" } | { type: "IMAGE_CAPTURED"; image: string ; } | {type: "PAINT"; image: string} | { type: "FURHAT_BLENDSHAPES"; value: Frame[] }
+//     |{ type: "EVALUATION_RECEIVED"; data: { result: "correct" | "wrong" } }
+// ;
+//   },
   
   
   
@@ -535,7 +564,8 @@ Please reply with a JSON object:
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
           prompt: currentTask.prompt,  
-          log: result                
+          log: result,
+          image64: ImageData,            
   })
 });
 
@@ -590,6 +620,43 @@ getBinaryClassificationworks: fromPromise<any, { model: string; image: string; c
       });
   }
 ),
+
+
+
+createEventsFromStream:  fromCallback(
+  ({ sendBack, input }: { sendBack: any; input: { streamId: string } }) => {
+    const url = `http://localhost:3000/sse/${input.streamId}`;
+    const eventSource = new EventSource(url);
+        eventSource.addEventListener("STREAMING_DONE", (_event) => {
+          sendBack({ type: "STREAMING_DONE" });
+          eventSource.close();
+        });
+        eventSource.addEventListener("STREAMING_RESET", (_event) => {});
+        eventSource.addEventListener("STREAMING_CHUNK", (event) => {
+          sendBack({ type: "STREAMING_CHUNK", value: event.data });
+        });
+        eventSource.addEventListener("STREAMING_SET_VOICE", (event) => {
+          sendBack({ type: "STREAMING_SET_VOICE", value: event.data });
+        });
+        eventSource.addEventListener("STREAMING_SET_LOCALE", (event) => {
+          sendBack({ type: "STREAMING_SET_LOCALE", value: event.data });
+        });
+        eventSource.addEventListener("STREAMING_SET_PERSONA", (event) => {
+          sendBack({ type: "STREAMING_SET_PERSONA", value: event.data });
+        });
+
+        eventSource.addEventListener("EVALUATION", (event) => {
+        const payload = JSON.parse(event.data); //IF RESULT IS CORRECT OR FALSE
+        sendBack({ type: "EVALUATION_RECEIVED", data: payload });
+        });
+
+
+    
+      },
+    ),
+
+
+
 
     setup_image: fromCallback(
       ({ sendBack, input }: { sendBack: any; input: string }) => {
@@ -707,6 +774,7 @@ getBinaryClassificationworks: fromPromise<any, { model: string; image: string; c
   },
 }).createMachine({
   context: ({ spawn }) => ({
+    session_id: sessionid,
     count: 0,
     ssRef: spawn(speechstate, { input: settings }),
     messages: [], //add in prompt
@@ -717,9 +785,7 @@ getBinaryClassificationworks: fromPromise<any, { model: string; image: string; c
     description: "",
     isCorrect: false,
     currentPrompt: "",
-
-
-    drawingTasks: [],
+    drawingTasks: drawingTasks,
     
     // moreStuff: {thingOne: 1, thingTwo: 2}
   }),
@@ -728,6 +794,7 @@ getBinaryClassificationworks: fromPromise<any, { model: string; image: string; c
   states: {
     Prepare: {
       entry: [{ type: "speechstate_prepare" }],
+      
       on: { ASRTTS_READY: "WaitToStart" },
     },
 
@@ -798,13 +865,23 @@ getBinaryClassificationworks: fromPromise<any, { model: string; image: string; c
     },
   
     PromptAndAsk: {
-      initial: "Prompt", //"GetDescription", "GreetUser"
+      initial:  "ChangeToEnglishVoice1", //"GetDescription", "GreetUser", "ChangeToEnglishVoice1", "Prompt"
       on: {
       
     },
       states: {
 
 
+  ChangeToEnglishVoice1: {
+        invoke: {
+          src: "fhChangeVoice",
+          input: () => ({
+            voice: "Peter22k_CO",
+            character: "default" // use the correct character name if you have one
+          }),
+          onDone: { target: "Prompt" },
+        }
+      },       
   
 Prompt: {
   invoke: {
@@ -870,7 +947,7 @@ Prompt: {
               text: `Nice to meet you ${context.name}! Let's start drawing and learning prepositions. You are drawing and I will tell you if it's correct!`
             }),
             onDone: {
-              target: "AskUserToDraw"
+              target: "ChangeToGreekVoice"//"AskUserToDraw"
             },
           
           }
@@ -906,7 +983,7 @@ Prompt: {
 
 
       AskUserToDraw: {
-  entry: [
+    entry: [
     assign(({ context }) => {
       const currentTask = drawingTasks[context.currentTaskIndex];
       return {
@@ -1003,7 +1080,7 @@ Prompt: {
               //console.log("Encoded image, transitioning to GetDescription...");
             },
           ],
-          after:{ 100: "GetBinaryClassification" },
+          after:{ 100: "GetDescription" },
          // after:{ 100: "GetDescription" }, //  DELAY BEFORE TRANSITION
         },
 
@@ -1062,7 +1139,7 @@ Prompt: {
             },
         
             onDone: {
-              target: "DescribeDrawing", 
+              target: "ButtonEvaluation",//"DescribeDrawing", 
               actions: assign(({ event }) => {
                 const result = event.output;
                 
@@ -1144,6 +1221,7 @@ Prompt: {
         },
 
 
+
         CheckIfCorrect: {
           always: [
             {
@@ -1162,14 +1240,17 @@ Prompt: {
 
 
 
+
+
+
         CheckNextTask: {
           always: [
             {
-              guard: ({ context }) => context.currentTaskIndex < drawingTasks.length,
+              guard: ({ context }) => context.currentTaskIndex < context.drawingTasks.length,
               target: "AskUserToDraw", 
             },
             {
-              guard: ({ context }) => context.currentTaskIndex >= drawingTasks.length,
+              guard: ({ context }) => context.currentTaskIndex >= context.drawingTasks.length,
               target: "EndSession", 
             }
           ]
@@ -1220,9 +1301,102 @@ Prompt: {
         
         //   },
         // },
+
+        
+DescribeDrawing: {
+  invoke: {
+    src: "fhSpeak",
+    input: ({ context }) => ({
+      text: context.messages[context.messages.length - 1].content
+    }),
+    onDone: { target: "ButtonEvaluation" },
+  }
+},
+
+
+ButtonEvaluation: {
+  invoke: {
+    src: "createEventsFromStream",
+    input: ({ context }) => ({ streamId: context.session_id }),
+  },
+  on: {
+    EVALUATION_RECEIVED: [
+  {
+    guard: ({ event }) => {
+      console.log("Event received in state:", event);
+      return event.data.result === "correct";
+    },
+    actions: assign({ isCorrect: () => true }),
+    target: "SayCorrect",
+  },
+  {
+    guard: ({ event }) => {
+      console.log("Event received in state:", event);
+      return event.data.result === "wrong";
+    },
+    actions: assign({ isCorrect: () => false }),
+    target: "SayWrong",
+  },
+  {
+    actions: ({ event }) => {
+      console.warn("EVALUATION_RECEIVED did not match any guard. Event was:", event);
+    },
+  },
+],
+
+  },
+},
+
+
+SayCorrect: {
+  always: {
+    guard: ({ context }) => context.isCorrect,
+    target: "SayCorrectSpeak"
+  },
+
+},
+
+SayCorrectSpeak: {
+  invoke: {
+    src: "fhSpeak",
+    input: () => ({
+      text: "BRAVO THIS IS CORRECT"
+    }),
+    onDone: {
+      target: "CheckIfCorrect"
+    }
+  }
+},
+
+
+
+
+
+
+
+SayWrong: {
+  invoke: {
+    src: "fhSpeak",
+    input: ({
+      text: `Unfortunately, you need to do more.`
+    }),
+    onDone: {
+      target: "AskUserToDraw" 
+    },
+    
+  }
+},
+
+
+
+
+
+
+
+
         
 
-  DescribeDrawing: {
+  DescribeDrawingINEEDTHAT: {
     invoke: {
     src: "fhSpeak",
     input: ({ context }) => ({
@@ -1266,62 +1440,8 @@ Prompt: {
 
 
 
-        ValidateDrawing: {
-          entry: {
-            type: "speechstate_speak",
-            params: ({ context }) => ({
-              value: context.drawingIsValid 
-              ? "Great job! That looks correct!"
-              : "I don't think this is quite right yet, try again.",
-            }),
-          },
-          on: {
-            SPEAK_COMPLETE: [
-              {
-                guard: ({ context }) => {
-                  return (context.drawingIsValid && context.currentTaskIndex < drawingTasks.length - 1) ? true : false;
-                },
-                target: "NextDrawing"
-              },
-              {
-                guard: ({ context }) => {
-                  return (context.drawingIsValid && context.currentTaskIndex >= drawingTasks.length - 1) ? true : false;
-                },
-                target: "EndSession"
-              },
-              {
-                guard: ({ context }) => {
-                  return !context.drawingIsValid ? true : false;
-                },
-                target: "AskUserToDraw"
-              }
-            ]
-          }
-        },
-        
 
-
-    
-NextDrawing: {
-  entry: assign({
-    currentTaskIndex: ({ context }) => context.currentTaskIndex + 1
-  }),
-  on: {
-    SPEAK_COMPLETE: [
-      {
-        guard: ({ context }) => {
-          return context.currentTaskIndex < context.drawingTasks.length - 1;
-        },
-        target: "AskUserToDraw"
-      },
-      {
-        target: "EndSession"
-      }
-    ]
-  }
-},
-
-        
+ 
         
   
         
