@@ -1,4 +1,4 @@
-import { AnyActorRef, assign, createActor, fromPromise, setup, fromCallback } from "xstate";
+import { AnyActorRef, assign, createActor, fromPromise, setup, fromCallback, raise, sendTo } from "xstate";
 import { speechstate, SpeechStateExternalEvent } from "speechstate";
 import { createBrowserInspector } from "@statelyai/inspect";
 import { KEY } from "./azure";
@@ -363,7 +363,8 @@ type DMEvents =
   | { type: "IMAGE_CAPTURED"; image: string }
   | { type: "PAINT"; image: string }
   | { type: "FURHAT_BLENDSHAPES"; value: Frame[] }
-  | { type: "EVALUATION_RECEIVED"; data: { result: "correct" | "wrong" } };
+  | { type: "EVALUATION_RECEIVED"; data: { result: "correct" | "wrong" } }
+  | { type: "NEXT_TASK" };
 
 const dmMachine = setup({
   types: {} as {
@@ -800,6 +801,181 @@ createEventsFromStream:  fromCallback(
 
 
 
+ WaitToStart: {
+      on: {
+        CLICK: {
+         // actions: "encode_image",    // CAPTURE BUTTON
+          target: "Main",   // DESCRIPTION
+      },
+        //CLICK: "PromptAndAsk",
+      },
+    },
+
+   Main: {
+  type: "parallel",
+
+    on: {
+    NEXT_TASK: {
+      
+      actions: sendTo("NEXT_TASK", { to: "DrawingFlow" })
+    }
+  },
+
+
+  states: {
+
+
+
+    ButtonEvaluation: {
+      initial: "listening",
+      invoke: {
+        src: "createEventsFromStream",
+        input: ({ context }) => ({ streamId: context.session_id }),
+      },
+      on: {
+        EVALUATION_RECEIVED: [
+          {
+            guard: ({ event }) => event.data.result === "correct",
+            actions: assign({ isCorrect: () => true }),
+            target: ".sayCorrect"
+          },
+          {
+            guard: ({ event }) => event.data.result === "wrong",
+            actions: assign({ isCorrect: () => false }),
+            target: ".sayWrong"
+          },
+        ]
+      },
+      states: {
+        listening: {},
+        
+sayCorrect: {
+  always: {
+    guard: ({ context }) => context.isCorrect,
+    target: "SayCorrectSpeak"
+  },
+
+},
+
+SayCorrectSpeak: {
+  invoke: {
+    src: "fhSpeak",
+    input: () => ({
+      text: "BRAVO THIS IS CORRECT"
+    }),
+    onDone: {
+      actions: raise(() => ({ type: "NEXT_TASK" })), //raise({ type: "NEXT_TASK" }), 
+      target: "CheckIfCorrect"
+    }
+  }
+},
+
+
+SayCorrectSpeakInitial: {
+  invoke: {
+    src: "fhSpeak",
+    input: () => ({
+      text: "BRAVO THIS IS CORRECT"
+    }),
+    onDone: {
+      target: "CheckIfCorrect"
+    }
+  }
+},
+
+  CheckIfCorrect: {
+          always: [
+            {
+              guard: ({ context }) => context.isCorrect, 
+              actions: assign(({ context }) => ({
+                currentTaskIndex: context.currentTaskIndex + 1,
+              })),
+              target: "CheckNextTask",
+            },
+            {
+              guard: ({ context }) => !context.isCorrect, 
+              target: "listening", //NEED CHANGE??
+            }
+          ]
+        },
+
+
+        CheckNextTask: {
+          always: [
+            {
+              guard: ({ context }) => context.currentTaskIndex < context.drawingTasks.length,
+              target: "listening", 
+            },
+            {
+              guard: ({ context }) => context.currentTaskIndex >= context.drawingTasks.length,
+              target: "listening",
+            }
+          ]
+        },
+
+//         EndSession: {
+//       invoke: {
+//     src: "fhSpeak",
+//     input: () => ({
+//       text: "Great job! You've completed all the drawing challenges. See you next time!"
+//     }),
+//     onDone: {
+//       actions: () => console.log("ends session"),
+  
+//     }
+//   }
+// },
+
+
+        //   EndSession: {
+        //   entry: {
+        //     type: "speechstate_speak",
+        //     params: { value: "Great job! You've completed all the drawing challenges. See you next time!" }
+        //   }
+        // },
+
+
+
+//         EndSession: {
+//       invoke: {
+//       src: "fhSpeak",
+//       input: () => ({
+//       text: "Great job! You've completed all the drawing challenges. See you next time!"
+//     }),
+    
+//   }
+// },
+        
+        
+        
+  
+    
+        // sayCorrect: {
+        //   invoke: {
+        //     src: "fhSpeak",
+        //     input: () => ({ text: "BRAVO THIS IS CORRECT" }),
+        //     onDone: { target: "listening" },
+        //   },
+        // },
+
+    sayWrong: {
+    invoke: {
+    src: "fhSpeak",
+    input: ({
+      text: `Unfortunately, you need to do more.`
+    }),
+    onDone: {
+      target: "listening" 
+    },
+    
+  }
+},
+      }
+    },
+
+
+
+
 
     // WaitToStart: {
     //   on: {
@@ -854,15 +1030,20 @@ createEventsFromStream:  fromCallback(
 
 
   
- WaitToStart: {
-      on: {
-        CLICK: {
-         // actions: "encode_image",    // CAPTURE BUTTON
-          target: "PromptAndAsk",   // DESCRIPTION
-      },
-        //CLICK: "PromptAndAsk",
-      },
-    },
+//  WaitToStart: {
+//       on: {
+//         CLICK: {
+//          // actions: "encode_image",    // CAPTURE BUTTON
+//           target: "PromptAndAsk",   // DESCRIPTION
+//       },
+//         //CLICK: "PromptAndAsk",
+//       },
+//     },
+
+DrawingFlow: {
+
+      initial: "PromptAndAsk", 
+      states: {
   
     PromptAndAsk: {
       initial:  "ChangeToEnglishVoice1", //"GetDescription", "GreetUser", "ChangeToEnglishVoice1", "Prompt"
@@ -901,20 +1082,6 @@ Prompt: {
 
 
 
-        PromptWORKS: {
-          entry: {
-            type: "speechstate_speak",
-            params: { 
-              value: `<mstts:viseme type="FacialExpression"/> Welcome to our world of drawing and learning. Today, we are going to discuss about prepositions, but first of all tell me your name`, 
-              voice: "en-US-AvaNeural",
-              locale: "en-US",
-
-            },
-          },
-          on: { SPEAK_COMPLETE: "ListenTheName" },
-        },
-
-   
 
 
         ListenTheName: {
@@ -947,7 +1114,7 @@ Prompt: {
               text: `Nice to meet you ${context.name}! Let's start drawing and learning prepositions. You are drawing and I will tell you if it's correct!`
             }),
             onDone: {
-              target: "ChangeToGreekVoice"//"AskUserToDraw"
+              target: "ChangeToGreekVoice",//"ChangeToGreekVoice"//"AskUserToDraw"
             },
           
           }
@@ -956,16 +1123,7 @@ Prompt: {
 
 
 
-        GreetUserWorks: {entry: {
-          type: "speechstate_speak",
-          params: ({ context }) => ({
-          value: `<mstts:viseme type="FacialExpression"/>Nice to meet you ${context.name}! Let's start drawing and learning prepositions. You are drawing and I will tell you if it's correct!.`,
-          locale: "en-US",
-          voice: "en-US-AvaNeural" ,
-          }),
-        },
-        on: { SPEAK_COMPLETE: "ChangeToGreekVoice"},//"AskUserToDraw"}, //"WaitBeforeCapture1" },
-      },
+      
 
 
 
@@ -974,7 +1132,7 @@ Prompt: {
           src: "fhChangeVoice",
           input: () => ({
             voice: "Dimitris22k_HQ",
-            character: "default" // use the correct character name if you have one
+            character: "default" 
           }),
           onDone: { target: "AskUserToDraw" },
         }
@@ -1007,22 +1165,22 @@ Prompt: {
       
       
 
-      AskUserToDrawIMPORTANT: {
-        entry: ({ context }) => {
-          const currentTask = drawingTasks[context.currentTaskIndex];
-          console.log("Entering AskUserToDraw with task:", currentTask.prompt);
-        },
-        invoke: {
-          src: "fhSpeak",
-          input: ({ context }) => {
-            const task = drawingTasks[context.currentTaskIndex];
-            return {
-              text: task.prompt
-            };
-          },
-          onDone: { target: "WaitBeforeCapture1" },
-        }
-      },
+      // AskUserToDrawIMPORTANT: {
+      //   entry: ({ context }) => {
+      //     const currentTask = drawingTasks[context.currentTaskIndex];
+      //     console.log("Entering AskUserToDraw with task:", currentTask.prompt);
+      //   },
+      //   invoke: {
+      //     src: "fhSpeak",
+      //     input: ({ context }) => {
+      //       const task = drawingTasks[context.currentTaskIndex];
+      //       return {
+      //         text: task.prompt
+      //       };
+      //     },
+      //     onDone: { target: "WaitBeforeCapture1" },
+      //   }
+      // },
       
 
 
@@ -1031,32 +1189,32 @@ Prompt: {
 
 
 
-      AskUserToDrawWORKS: {
-        entry: [
-          ({ context }) => {
-            const currentTask = drawingTasks[context.currentTaskIndex];
-            console.log("Entering AskUserToDraw with task:", currentTask.prompt); 
-          },
-          {
+      // AskUserToDrawWORKS: {
+      //   entry: [
+      //     ({ context }) => {
+      //       const currentTask = drawingTasks[context.currentTaskIndex];
+      //       console.log("Entering AskUserToDraw with task:", currentTask.prompt); 
+      //     },
+      //     {
             
-            type: "speechstate_speak",
-            params: ({ context }) => {
-              const currentTask = drawingTasks[context.currentTaskIndex];
+      //       type: "speechstate_speak",
+      //       params: ({ context }) => {
+      //         const currentTask = drawingTasks[context.currentTaskIndex];
 
-              return {
-                value: `<mstts:viseme type="FacialExpression"/>${currentTask.prompt}`,
+      //         return {
+      //           value: `<mstts:viseme type="FacialExpression"/>${currentTask.prompt}`,
 
-                //value: currentTask.prompt,
-                voice: currentTask.voice ?? "en-US-AvaNeural" 
-              };
-             //return { value: currentTask.prompt };
-            }
-          }
-        ],
-        on: { 
-          SPEAK_COMPLETE: "WaitBeforeCapture1" 
-        }
-      },
+      //           //value: currentTask.prompt,
+      //           voice: currentTask.voice ?? "en-US-AvaNeural" 
+      //         };
+      //        //return { value: currentTask.prompt };
+      //       }
+      //     }
+      //   ],
+      //   on: { 
+      //     SPEAK_COMPLETE: "WaitBeforeCapture1" 
+      //   }
+      // },
       
 
 
@@ -1122,6 +1280,12 @@ Prompt: {
         },
 
 
+
+
+
+
+
+
         GetBinaryClassification: {
           invoke: {
             src: "getBinaryClassification",
@@ -1139,7 +1303,7 @@ Prompt: {
             },
         
             onDone: {
-              target: "ButtonEvaluation",//"DescribeDrawing", 
+              target: "WaitBeforeCapture1",//"ButtonEvaluation",//"DescribeDrawing", 
               actions: assign(({ event }) => {
                 const result = event.output;
                 
@@ -1174,87 +1338,90 @@ Prompt: {
             },
           },
         },
+
+
+
         
 
 
 
 
 
-        GetBinaryClassificationWORKS: {
-          invoke: {
-            src: "getBinaryClassification",
-            input: ({ context }) => {
-              if (!context.image64 || context.currentTaskIndex === undefined) {
-                console.error("No image captured or task index not defined!"); 
-                return { model: "llava:13b", image: "", currentTaskIndex: -1 };  
-              }
-              console.log("Base64:", context.image64.substring(0, 30) + "..."); 
-              return { 
-                model: "llava:34b",//"llava:13b", 
-                image: context.image64, 
-                currentTaskIndex: context.currentTaskIndex 
-              };
-            },
+        // GetBinaryClassificationWORKS: {
+        //   invoke: {
+        //     src: "getBinaryClassification",
+        //     input: ({ context }) => {
+        //       if (!context.image64 || context.currentTaskIndex === undefined) {
+        //         console.error("No image captured or task index not defined!"); 
+        //         return { model: "llava:13b", image: "", currentTaskIndex: -1 };  
+        //       }
+        //       console.log("Base64:", context.image64.substring(0, 30) + "..."); 
+        //       return { 
+        //         model: "llava:34b",//"llava:13b", 
+        //         image: context.image64, 
+        //         currentTaskIndex: context.currentTaskIndex 
+        //       };
+        //     },
         
-            onDone: {
-              target: "DescribeDrawing", //"CheckIfCorrect",
-              actions: assign(({ event }) => {
+        //     onDone: {
+        //       target: "DescribeDrawing", //"CheckIfCorrect",
+        //       actions: assign(({ event }) => {
 
-                console.log("Binary Classification Result:", event.output?.isMatch);
+        //         console.log("Binary Classification Result:", event.output?.isMatch);
         
-                return {
-                  isCorrect: event.output?.isMatch || false,
-                  messages: [
-                    { 
-                      role: "assistant", 
-                      content: event.output?.isMatch 
-                        ? "I think this is the correct drawing. Well done!" 
-                        : randomRepeat(negativeFeedback), //"I don't think this is the correct drawing. Try again!"
-                        locale: "en-US", 
-                        voice: "en-US-AvaNeural",
-                    },
-                  ],
-                };
-              }),
-            },
-          },
-        },
+        //         return {
+        //           isCorrect: event.output?.isMatch || false,
+        //           messages: [
+        //             { 
+        //               role: "assistant", 
+        //               content: event.output?.isMatch 
+        //                 ? "I think this is the correct drawing. Well done!" 
+        //                 : randomRepeat(negativeFeedback), //"I don't think this is the correct drawing. Try again!"
+        //                 locale: "en-US", 
+        //                 voice: "en-US-AvaNeural",
+        //             },
+        //           ],
+        //         };
+        //       }),
+        //     },
+        //   },
+        // },
 
 
 
-        CheckIfCorrect: {
-          always: [
-            {
-              guard: ({ context }) => context.isCorrect, 
-              actions: assign(({ context }) => ({
-                currentTaskIndex: context.currentTaskIndex + 1,
-              })),
-              target: "CheckNextTask",
-            },
-            {
-              guard: ({ context }) => !context.isCorrect, 
-              target: "AskUserToDraw",
-            }
-          ]
-        },
+        // CheckIfCorrect: {
+        //   always: [
+        //     {
+        //       guard: ({ context }) => context.isCorrect, 
+        //       actions: assign(({ context }) => ({
+        //         currentTaskIndex: context.currentTaskIndex + 1,
+        //       })),
+        //       target: "CheckNextTask",
+        //     },
+        //     {
+        //       guard: ({ context }) => !context.isCorrect, 
+        //       target: "AskUserToDraw",
+        //     }
+        //   ]
+        // },
 
 
 
 
 
 
-        CheckNextTask: {
-          always: [
-            {
-              guard: ({ context }) => context.currentTaskIndex < context.drawingTasks.length,
-              target: "AskUserToDraw", 
-            },
-            {
-              guard: ({ context }) => context.currentTaskIndex >= context.drawingTasks.length,
-              target: "EndSession", 
-            }
-          ]
-        },
+        // CheckNextTask: {
+        //   always: [
+        //     {
+        //       guard: ({ context }) => context.currentTaskIndex < context.drawingTasks.length,
+        //       target: "AskUserToDraw", 
+        //     },
+        //     {
+        //       guard: ({ context }) => context.currentTaskIndex >= context.drawingTasks.length,
+        //       target: "EndSession", 
+        //     }
+        //   ]
+        // },
         
 
 
@@ -1303,157 +1470,177 @@ Prompt: {
         // },
 
         
-DescribeDrawing: {
-  invoke: {
-    src: "fhSpeak",
-    input: ({ context }) => ({
-      text: context.messages[context.messages.length - 1].content
-    }),
-    onDone: { target: "ButtonEvaluation" },
-  }
-},
+// DescribeDrawing: {
+//   invoke: {
+//     src: "fhSpeak",
+//     input: ({ context }) => ({
+//       text: context.messages[context.messages.length - 1].content
+//     }),
+//     onDone: { target: "ButtonEvaluation" },
+//   }
+// },
 
 
-ButtonEvaluation: {
-  invoke: {
-    src: "createEventsFromStream",
-    input: ({ context }) => ({ streamId: context.session_id }),
-  },
-  on: {
-    EVALUATION_RECEIVED: [
-  {
-    guard: ({ event }) => {
-      console.log("Event received in state:", event);
-      return event.data.result === "correct";
-    },
-    actions: assign({ isCorrect: () => true }),
-    target: "SayCorrect",
-  },
-  {
-    guard: ({ event }) => {
-      console.log("Event received in state:", event);
-      return event.data.result === "wrong";
-    },
-    actions: assign({ isCorrect: () => false }),
-    target: "SayWrong",
-  },
-  {
-    actions: ({ event }) => {
-      console.warn("EVALUATION_RECEIVED did not match any guard. Event was:", event);
-    },
-  },
-],
+// ButtonEvaluation: {
+//   invoke: {
+//     src: "createEventsFromStream",
+//     input: ({ context }) => ({ streamId: context.session_id }),
+//   },
+//   on: {
+//     EVALUATION_RECEIVED: [
+//   {
+//     guard: ({ event }) => {
+//       console.log("Event received in state:", event);
+//       return event.data.result === "correct";
+//     },
+//     actions: assign({ isCorrect: () => true }),
+//     target: "SayCorrect",
+//   },
+//   {
+//     guard: ({ event }) => {
+//       console.log("Event received in state:", event);
+//       return event.data.result === "wrong";
+//     },
+//     actions: assign({ isCorrect: () => false }),
+//     target: "SayWrong",
+//   },
+//   {
+//     actions: ({ event }) => {
+//       console.warn("EVALUATION_RECEIVED did not match any guard. Event was:", event);
+//     },
+//   },
+// ],
 
-  },
-},
+//   },
+// },
 
 
-SayCorrect: {
-  always: {
-    guard: ({ context }) => context.isCorrect,
-    target: "SayCorrectSpeak"
-  },
+// SayCorrect: {
+//   always: {
+//     guard: ({ context }) => context.isCorrect,
+//     target: "SayCorrectSpeak"
+//   },
 
-},
+// },
 
-SayCorrectSpeak: {
-  invoke: {
+// SayCorrectSpeak: {
+//   invoke: {
+//     src: "fhSpeak",
+//     input: () => ({
+//       text: "BRAVO THIS IS CORRECT"
+//     }),
+//     onDone: {
+//       target: "CheckIfCorrect"
+//     }
+//   }
+// },
+
+
+
+
+
+
+
+// SayWrong: {
+//   invoke: {
+//     src: "fhSpeak",
+//     input: ({
+//       text: `Unfortunately, you need to do more.`
+//     }),
+//     onDone: {
+//       target: "AskUserToDraw" 
+//     },
+    
+//   }
+// },
+
+
+
+
+
+
+
+
+        
+
+//   DescribeDrawingINEEDTHAT: {
+//     invoke: {
+//     src: "fhSpeak",
+//     input: ({ context }) => ({
+//       text: context.messages[context.messages.length - 1].content
+//     }),
+//     onDone: { target: "CheckIfCorrect" },
+//   }
+// },
+
+
+    // DescribeDrawingWORKS: {
+    //   entry: {
+    //     type: "speechstate_speak",
+    //     params: ({ context }) => ({
+    //       value: context.messages[context.messages.length - 1].content,
+    //       locale: "en-US",
+    //       voice: "en-US-AvaNeural",
+    //     }),
+    //   },
+    //   on: { SPEAK_COMPLETE: "CheckIfCorrect"},//"WaitBeforeCapture2" },
+    // },
+
+
+    // WaitBeforeCapture2: {
+    //   after: {
+    //     20000: "GetDescription", 
+    //   },
+    // },
+
+        
+        
+        
+
+
+
+
+
+
+
+
+
+
+
+   EndSession: {
+      invoke: {
     src: "fhSpeak",
     input: () => ({
-      text: "BRAVO THIS IS CORRECT"
+      text: "Great job! You've completed all the drawing challenges. See you next time!"
     }),
     onDone: {
-      target: "CheckIfCorrect"
+      actions: () => console.log("ends session"),
+  
     }
   }
 },
 
-
-
-
-
-
-
-SayWrong: {
-  invoke: {
-    src: "fhSpeak",
-    input: ({
-      text: `Unfortunately, you need to do more.`
+ 
+        
+  EndSessionInitial: {
+      invoke: {
+      src: "fhSpeak",
+      input: () => ({
+      text: "Great job! You've completed all the drawing challenges. See you next time!"
     }),
-    onDone: {
-      target: "AskUserToDraw" 
-    },
     
   }
 },
-
-
-
-
-
-
-
-
-        
-
-  DescribeDrawingINEEDTHAT: {
-    invoke: {
-    src: "fhSpeak",
-    input: ({ context }) => ({
-      text: context.messages[context.messages.length - 1].content
-    }),
-    onDone: { target: "CheckIfCorrect" },
-  }
-},
-
-
-    DescribeDrawingWORKS: {
-      entry: {
-        type: "speechstate_speak",
-        params: ({ context }) => ({
-          value: context.messages[context.messages.length - 1].content,
-          locale: "en-US",
-          voice: "en-US-AvaNeural",
-        }),
-      },
-      on: { SPEAK_COMPLETE: "CheckIfCorrect"},//"WaitBeforeCapture2" },
-    },
-
-
-    WaitBeforeCapture2: {
-      after: {
-        20000: "GetDescription", 
-      },
-    },
-
-        
-        
-        
-
-
-
-
-
-
-
-
-
-
-
-
- 
-        
-  
         
     
       
     
-        EndSession: {
-          entry: {
-            type: "speechstate_speak",
-            params: { value: "Great job! You've completed all the drawing challenges. See you next time!" }
-          }
-        },
+        // EndSession: {
+        //   entry: {
+        //     type: "speechstate_speak",
+        //     params: { value: "Great job! You've completed all the drawing challenges. See you next time!" }
+        //   }
+        // },
 
 
 
@@ -1550,40 +1737,40 @@ SayWrong: {
 
 
 
-        GetDescriptionworks: {
-          invoke: {
-            src: "getDescription",
-            input: ({ context }) => {
-              if (!context.image64) {
-                console.error("No image captured!"); 
-                return { model: "llava", image: "" };  
-              }
-              console.log("Base64:", context.image64.substring(0, 30) + "..."); 
-              return { model: "llava", image: context.image64 };
-            },
+    //     GetDescriptionworks: {
+    //       invoke: {
+    //         src: "getDescription",
+    //         input: ({ context }) => {
+    //           if (!context.image64) {
+    //             console.error("No image captured!"); 
+    //             return { model: "llava", image: "" };  
+    //           }
+    //           console.log("Base64:", context.image64.substring(0, 30) + "..."); 
+    //           return { model: "llava", image: context.image64 };
+    //         },
 
 
-            //input: ({ context }) => ({ model: "llava", image: context.image64! }),
+    //         //input: ({ context }) => ({ model: "llava", image: context.image64! }),
 
-     //      input: ({ context }) => ({ image: context.image64! }),
-            onDone: {
-              target: "DescribeDrawing",
+    //  //      input: ({ context }) => ({ image: context.image64! }),
+    //         onDone: {
+    //           target: "DescribeDrawing",
 
-              actions: assign(({ event }) => {
-                console.log("Event Output:", event.output); 
+    //           actions: assign(({ event }) => {
+    //             console.log("Event Output:", event.output); 
               
-                return {
-                  messages: [
-                    { 
-                      role: "assistant", 
-                      content: event.output?.response || "No content received." // CHANGED THIS content: event.output?.message?.content
-                    },
-                  ],
-                };
-              }),
-            },
-          },
-        },
+    //             return {
+    //               messages: [
+    //                 { 
+    //                   role: "assistant", 
+    //                   content: event.output?.response || "No content received." // CHANGED THIS content: event.output?.message?.content
+    //                 },
+    //               ],
+    //             };
+    //           }),
+    //         },
+    //       },
+    //     },
         //       actions: assign(({ event }) =>
 
                 
@@ -1606,10 +1793,38 @@ Listen: {},
 
   },
 },
-  }
+  },
+
+  
+
+  on: {
+  NEXT_TASK: [
+    {
+      guard: ({ context }) => context.currentTaskIndex < context.drawingTasks.length,
+      target: ".PromptAndAsk.AskUserToDraw"
+    },
+    {
+      guard: ({ context }) => context.currentTaskIndex >= context.drawingTasks.length,
+      target: ".PromptAndAsk.EndSession"
+    }
+  ]
 },
-  //}, //για το αρχικο χωρις φερχατ δεν θελει 2 αγκυλες 
-//}
+
+  //  on: {
+  //   NEXT_TASK: {
+    
+  //     target: ".PromptAndAsk.AskUserToDraw"//".AskUserToDraw"  
+  //   }
+  // }
+
+
+
+},
+},
+   },
+  },
+  //για το αρχικο χωρις φερχατ δεν θελει 2 αγκυλες 
+},
 );
 
 
