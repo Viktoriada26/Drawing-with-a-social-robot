@@ -7,7 +7,6 @@ import { KEY } from "./azure";
 
 
 
-
 const inspector = createBrowserInspector();
 
 const azureCredentials = {
@@ -21,9 +20,9 @@ const settings = {
   azureCredentials: azureCredentials,
   asrDefaultCompleteTimeout: 0,
   asrDefaultNoInputTimeout: 5000,
-  locale: "el-GR",
-  ttsDefaultVoice: "el-GR-AthinaNeural", 
-  //ttsDefaultVoice: "en-US-AvaNeural", //"el-GR-AthinaNeural",//"en-US-AvaNeural" // en-US-DavisNeural",
+  locale: "en-US",
+  //ttsDefaultVoice: "el-GR-AthinaNeural", 
+  ttsDefaultVoice: "en-US-AvaNeural", //"el-GR-AthinaNeural",//"en-US-AvaNeural" // en-US-DavisNeural",
 };
 
 interface Frame {
@@ -38,16 +37,17 @@ interface Frame {
 
 
 
-function createSessionId(length = 8) {
-  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let result = "";
-  for(let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-const sessionid = createSessionId();
+// function createSessionId(length = 8) {
+//   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+//   let result = "";
+//   for(let i = 0; i < length; i++) {
+//     result += chars.charAt(Math.floor(Math.random() * chars.length));
+//   }
+//   return result;
+// }
+// const sessionid = createSessionId();
 
+const sessionid = self.crypto.randomUUID();
 
 function captureCanvasImage(): string {
   const canvas = document.getElementById("paint") as HTMLCanvasElement;
@@ -311,6 +311,67 @@ interface Message {
   content: string;
 }
 
+//GESTURE SO WE CALL WHICHEVER GESTURE I WANT - BIG SMILE ETC
+async function fhGesture(text: string) {
+  const myHeaders = new Headers();
+  myHeaders.append("accept", "application/json");
+  return fetch(
+    `http://${FURHATURI}/furhat/gesture?name=${text}&blocking=true`,
+    {
+      method: "POST",
+      headers: myHeaders,
+      body: "",
+    },
+  );
+}
+
+async function lookthedrawing() {
+  const myHeaders = new Headers();
+  myHeaders.append("accept", "application/json");
+
+  return fetch(`http://${FURHATURI}/furhat/gesture?blocking=false`, {
+    method: "POST",
+    headers: myHeaders,
+    body: JSON.stringify({
+      name: "lookthedrawing",
+      frames: [
+        {
+          time: [0.0, 0.5],
+          persist: true,
+          params: {
+            NECK_TILT: +45,        
+            GAZE_TILT: -30,        
+            SMILE_CLOSED: 0.2,
+            EYE_SQUINT_LEFT: 0.2,
+            EYE_SQUINT_RIGHT: 0.2
+          }
+        },
+        {
+          time: [2.0],
+          persist: false,
+          params: {
+            reset: true
+          }
+        }
+      ],
+      class: "furhatos.gestures.Gesture"
+    }),
+  });
+}
+
+
+
+
+//ATTEND TO THE USER 
+async function fhAttend() {
+  const myHeaders = new Headers();
+  myHeaders.append("accept", "application/json");
+  return fetch(`http://${FURHATURI}/furhat/attend?user=RANDOM`, {
+    method: "POST",
+    headers: myHeaders,
+  });
+}
+
 const FURHATURI = "localhost:8181/http://192.168.1.11:54321"    //"192.168.1.11:54321"; //"127.0.0.1:54321"; 
 
   async function fhSay(text: string) {
@@ -447,6 +508,27 @@ const dmMachine = setup({
   
   actors: {
 
+    fhAttendUser : fromPromise<any, null>(async () => {
+      return fhAttend(); 
+    }) ,
+
+
+    lookTheDrawing: fromPromise<any, null>(async () => {
+    return Promise.all([
+      lookthedrawing(),
+    ]);
+  }),
+
+  fhSmile:  fromPromise<any,any>(async () => {
+      return fhGesture('Smile')
+    }),
+
+     fhSad:  fromPromise<any,any>(async () => {
+      return fhGesture('Sad') // I HAVE TO CHECK IF THIS IS SAD. 
+    }),
+
+
+
     fhBlendShape: fromPromise<any, { frames: Frame[] }>(({ input }) => {
       return fhFetch(input.frames);
     }),
@@ -564,9 +646,13 @@ Please reply with a JSON object:
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+          session: sessionid,
           prompt: currentTask.prompt,  
           log: result,
-          image64: ImageData,            
+          image64: `-----BEGIN IMAGE BASE64-----\n${input.image}\n-----END IMAGE BASE64-----`,
+          source: "drawing_flow",
+          llm_response: fullResponse
+         // image64: input.image,            
   })
 });
 
@@ -625,8 +711,10 @@ getBinaryClassificationworks: fromPromise<any, { model: string; image: string; c
 
 
 createEventsFromStream:  fromCallback(
-  ({ sendBack, input }: { sendBack: any; input: { streamId: string } }) => {
-    const url = `http://localhost:3000/sse/${input.streamId}`;
+  ({ sendBack, input }: { sendBack: any; input: { streamId: string; image: string } }) => {
+      const url = `http://192.168.1.216:3000/sse/${input.streamId}`;
+
+    //const url = `http://localhost:3000/sse/${input.streamId}`;
     const eventSource = new EventSource(url);
         eventSource.addEventListener("STREAMING_DONE", (_event) => {
           sendBack({ type: "STREAMING_DONE" });
@@ -649,7 +737,22 @@ createEventsFromStream:  fromCallback(
         eventSource.addEventListener("EVALUATION", (event) => {
         const payload = JSON.parse(event.data); //IF RESULT IS CORRECT OR FALSE
         sendBack({ type: "EVALUATION_RECEIVED", data: payload });
+
+  //   fetch("http://127.0.0.1:5000/log", {
+  //   method: "POST",
+  //   headers: { "Content-Type": "application/json" },
+  //   body: JSON.stringify({
+  //     session: sessionid,
+  //     evaluation: payload.result,
+  //     evaluation_timestamp: new Date().toISOString(),
+  //     //image64: `-----BEGIN IMAGE BASE64-----\n${input.image}\n-----END IMAGE BASE64-----` 
+  //     //HERE IS THE ISSUE THAT THE IMAGE IS ENCODED TO BASE64 FROM THE DRAWING FLOW MACHINE SO THE BUTTON EVALUATION DOESNT HAVE ACCESS TO THE INPUT IMAGE . 
+  //   })
+  // });
+
+
         });
+
 
 
     
@@ -813,12 +916,17 @@ createEventsFromStream:  fromCallback(
 
    Main: {
   type: "parallel",
+ 
 
     on: {
     NEXT_TASK: {
       
       actions: sendTo("NEXT_TASK", { to: "DrawingFlow" })
-    }
+    },
+    
+  //   IMAGE_READY: {
+  //   actions: sendTo("IMAGE_READY", { to: "ButtonEvaluation" })
+  // }
   },
 
 
@@ -827,35 +935,148 @@ createEventsFromStream:  fromCallback(
 
 
     ButtonEvaluation: {
+      id: "ButtonEvaluation",
       initial: "listening",
       invoke: {
         src: "createEventsFromStream",
-        input: ({ context }) => ({ streamId: context.session_id }),
+        input: ({ context }) => ({ streamId: context.session_id, image: context.image64 || "" }),
       },
       on: {
-        EVALUATION_RECEIVED: [
-          {
-            guard: ({ event }) => event.data.result === "correct",
-            actions: assign({ isCorrect: () => true }),
-            target: ".sayCorrect"
-          },
-          {
-            guard: ({ event }) => event.data.result === "wrong",
-            actions: assign({ isCorrect: () => false }),
-            target: ".sayWrong"
-          },
-        ]
-      },
+
+        START_EVALUATION: "ButtonEvaluation.EncodeImage",//"EncodeImage",
+
+         
+
+
+      
+
+  // IMAGE_READY: {
+  //   actions: assign({
+  //     image64: (_, event) => (event as any)?.image64 || "",
+  //    // image64: (_, event) => event.image64,
+  //   }),
+  // },
+  EVALUATION_RECEIVED: [
+    {
+      guard: ({ event }) => event.data.result === "correct",
+      actions: [
+        assign({ isCorrect: () => true }),
+        ({ context }) => {
+          fetch("http://127.0.0.1:5000/log", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              session: context.session_id,
+              evaluation: "correct",
+              evaluation_timestamp: new Date().toISOString(),
+              image64: context.image64,
+              source: "evaluation",
+            }),
+          });
+        },
+      ],
+      target: ".sayCorrect",
+
+  
+    },
+
+
+     {
+  guard: ({ event }) => event.data.result === "wrong",
+  actions: [
+    assign({ isCorrect: () => false }),
+    ({ context }) => {  
+      fetch("http://127.0.0.1:5000/log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session: context.session_id,
+          evaluation: "wrong",
+          evaluation_timestamp: new Date().toISOString(),
+          image64: context.image64,
+          source: "evaluation",
+        }),
+      });
+    },
+  ],
+  target: ".ChangeToEnglishVoice5",
+}
+
+
+  ],
+},
+
+      // on: {
+      //   EVALUATION_RECEIVED: [
+      //     {
+      //       guard: ({ event }) => event.data.result === "correct",
+      //       actions: assign({ isCorrect: () => true }),
+      //       target: ".sayCorrect"
+      //     },
+      //     {
+      //       guard: ({ event }) => event.data.result === "wrong",
+      //       actions: assign({ isCorrect: () => false }),
+      //       target: ".ChangeToEnglishVoice5", //".sayWrong"
+      //     },
+      //   ]
+      // },
       states: {
         listening: {},
+
+
+    //   LookDownBeforeEncode: {
+    //   invoke: {
+    //     src: "lookTheDrawing",
+    //     input: () => null,
+    //     onDone: {
+    //       target: "EncodeImage"
+    //     }
+    //   }
+    // },
+
+         EncodeImage: {
+          entry: [
+            "encode_image", 
+            () => {
+              //console.log("Encoded image, transitioning to GetDescription...");
+            },
+          ],
+        //  after:{ 100: "" },
+         // after:{ 100: "GetDescription" }, //  DELAY BEFORE TRANSITION
+        },
+
+
+  ChangeToEnglishVoice5: {
+        invoke: {
+          src: "fhChangeVoice",
+          input: () => ({
+            voice: "Ruth-Neural",//"Tracy22k_HQ",
+            character: "default" 
+          }),
+          onDone: { target: "sayWrong" },
+        }
+      },         
+
         
 sayCorrect: {
   always: {
     guard: ({ context }) => context.isCorrect,
-    target: "SayCorrectSpeak"
+    target: "ChangeToEnglishVoice4"//"SayCorrectSpeak"
   },
 
 },
+
+
+  ChangeToEnglishVoice4: {
+        invoke: {
+          src: "fhChangeVoice",
+          input: () => ({
+            voice: "Ruth-Neural",//"Tracy22k_HQ",
+            character: "default" 
+          }),
+          onDone: { target: "SayCorrectSpeak" },
+        }
+      },  
 
 SayCorrectSpeak: {
   invoke: {
@@ -865,10 +1086,22 @@ SayCorrectSpeak: {
     }),
     onDone: {
       actions: raise(() => ({ type: "NEXT_TASK" })), //raise({ type: "NEXT_TASK" }), 
-      target: "CheckIfCorrect"
+      target:"listening"//"ChangeToGreekVoice1", //"CheckIfCorrect"
     }
   }
 },
+
+//  ChangeToGreekVoice1: {
+//         invoke: {
+//           src: "fhChangeVoice",
+//           input: () => ({
+//             voice: "AthinaNeural",//"Dimitris22k_HQ",
+//             character: "default" 
+//           }),
+//           onDone: { target: "CheckIfCorrect"},//"AskUserToDraw" },
+//         }
+//       },
+
 
 
 SayCorrectSpeakInitial: {
@@ -878,53 +1111,71 @@ SayCorrectSpeakInitial: {
       text: "BRAVO THIS IS CORRECT"
     }),
     onDone: {
-      target: "CheckIfCorrect"
+      target: "listening", //"CheckIfCorrect"
     }
   }
 },
 
-  CheckIfCorrect: {
-          always: [
-            {
-              guard: ({ context }) => context.isCorrect, 
-              actions: assign(({ context }) => ({
-                currentTaskIndex: context.currentTaskIndex + 1,
-              })),
-              target: "CheckNextTask",
-            },
-            {
-              guard: ({ context }) => !context.isCorrect, 
-              target: "listening", //NEED CHANGE??
-            }
-          ]
-        },
 
 
-        CheckNextTask: {
-          always: [
-            {
-              guard: ({ context }) => context.currentTaskIndex < context.drawingTasks.length,
-              target: "listening", 
-            },
-            {
-              guard: ({ context }) => context.currentTaskIndex >= context.drawingTasks.length,
-              target: "listening",
-            }
-          ]
-        },
 
-//         EndSession: {
-//       invoke: {
-//     src: "fhSpeak",
-//     input: () => ({
-//       text: "Great job! You've completed all the drawing challenges. See you next time!"
-//     }),
-//     onDone: {
-//       actions: () => console.log("ends session"),
+  // CheckIfCorrect: {
+  //         always: [
+  //           {
+  //             guard: ({ context }) => context.isCorrect, 
+  //             actions: assign(({ context }) => ({
+  //               currentTaskIndex: context.currentTaskIndex + 1,
+  //             })),
+  //             target: "CheckNextTask",
+  //           },
+  //           {
+  //             guard: ({ context }) => !context.isCorrect, 
+  //             target: "listening", //NEED CHANGE??
+  //           }
+  //         ]
+  //       },
+
+
+  //       CheckNextTask: {
+  //         always: [
+  //           {
+  //             guard: ({ context }) => context.currentTaskIndex < context.drawingTasks.length,
+  //             target: "listening", 
+  //           },
+  //           {
+  //             guard: ({ context }) => context.currentTaskIndex >= context.drawingTasks.length,
+  //             target:  "listening", // I THINK THE ISSUE WITH END SESSION IS HERE AS IT CONTINUES LISTENING SO THERE IS A PROBLEM IT SHOULD TARGET THE END SESSION PART   
+  //           }
+  //         ]
+  //       },
+
+
+
+
+        ChangeEnglishVoice25: {
+        entry: () => console.log("ChangeEnglishVoice25 state"),
+        invoke: {
+          src: "fhChangeVoice",
+          input: () => ({
+            voice: "Ruth-Neural",//"Tracy22k_HQ",
+            character: "default" 
+          }),
+          onDone: { target: "EndSession" },
+        }
+      },  
+
+        EndSession: {
+      invoke: {
+    src: "fhSpeak",
+    input: () => ({
+      text: "Great job! You've completed all the drawing challenges. See you next time!"
+    }),
+    onDone: {
+      actions: () => console.log("ends session"),
   
-//     }
-//   }
-// },
+    }
+  }
+},
 
 
         //   EndSession: {
@@ -1053,16 +1304,35 @@ DrawingFlow: {
       states: {
 
 
+
+
   ChangeToEnglishVoice1: {
         invoke: {
           src: "fhChangeVoice",
           input: () => ({
-            voice: "Peter22k_CO",
-            character: "default" // use the correct character name if you have one
+            voice: "Ruth-Neural",//"Tracy22k_HQ",
+            character: "default" 
           }),
-          onDone: { target: "Prompt" },
+          onDone:{target: "Attenduser"}//{ target: "Prompt" },
         }
-      },       
+      }, 
+      
+      
+
+
+      
+      Attenduser: {
+       invoke: {
+    src: "fhAttendUser",
+    input: () => null,
+    onDone: {
+      target: "Prompt"
+    }
+  }
+},
+
+
+
   
 Prompt: {
   invoke: {
@@ -1087,12 +1357,29 @@ Prompt: {
         ListenTheName: {
           entry: { type: "speechstate_listen" },
           on: {
+            ASR_NOINPUT: {
+            target: "AskAgainTheName",
+          },
             RECOGNISED: {
               actions: assign({
                 name: ({event}) => event.value[0].utterance.toLowerCase()}),
               target: "Processingname"
             }
           }
+
+        },
+
+        AskAgainTheName:{
+            invoke: {
+        src: "fhSpeak",
+        input: ({
+      text: `Can you tell me your name please, so I know what to call you?`
+    }),
+    onDone: {
+      target: "ListenTheName"
+    },
+    
+  }
 
         },
 
@@ -1106,19 +1393,43 @@ Prompt: {
           },
         },
 
-
         GreetUser: {
-          invoke: {
-            src: "fhSpeak",
-            input: ({ context }) => ({
-              text: `Nice to meet you ${context.name}! Let's start drawing and learning prepositions. You are drawing and I will tell you if it's correct!`
-            }),
-            onDone: {
-              target: "ChangeToGreekVoice",//"ChangeToGreekVoice"//"AskUserToDraw"
-            },
+  invoke: {
+    src: "fhSmile",
+    onDone: {
+      target: "SpeakGreeting"
+    }
+  }
+},
+
+
+
+SpeakGreeting: {
+  invoke: {
+    src: "fhSpeak",
+    input: ({ context }) => ({
+      text: `Nice to meet you ${context.name}! Let's start drawing and learning prepositions. You are drawing and I will tell you if it's correct!`
+    }),
+    onDone: {
+      target: "ChangeToGreekVoice"
+    }
+  }
+},
+
+
+
+        // GreetUser: {
+        //   invoke: {
+        //     src: "fhSpeak",
+        //     input: ({ context }) => ({
+        //       text: `Nice to meet you ${context.name}! Let's start drawing and learning prepositions. You are drawing and I will tell you if it's correct!`
+        //     }),
+        //     onDone: {
+        //       target: "ChangeToGreekVoice",//"ChangeToGreekVoice"//"AskUserToDraw"
+        //     },
           
-          }
-        },
+        //   }
+        // },
         
 
 
@@ -1131,12 +1442,14 @@ Prompt: {
         invoke: {
           src: "fhChangeVoice",
           input: () => ({
-            voice: "Dimitris22k_HQ",
+            voice: "AthinaNeural",//"Dimitris22k_HQ",
             character: "default" 
           }),
           onDone: { target: "AskUserToDraw" },
         }
       },
+
+
 
 
 
@@ -1225,11 +1538,21 @@ Prompt: {
       },
 
 
+// EncodeImage: {
+//   entry: [
+//     "encode_image",
+//     sendParent(({ context }) => ({
+//       type: "IMAGE_READY",
+//       image64: context.image64,
+//     })),
+//   ],
+//   after: { 100: "GetDescription" },
+// },
 
 
 
     
-        
+       // INITIAL THAT WORKS WITHOUT THE EVENT FOR BUTTON
         
         EncodeImage: {
           entry: [
@@ -1238,9 +1561,23 @@ Prompt: {
               //console.log("Encoded image, transitioning to GetDescription...");
             },
           ],
-          after:{ 100: "GetDescription" },
+
+          after: {100:"LookDownBeforeEncode"}
+          //after:{ 100: "GetDescription" },
          // after:{ 100: "GetDescription" }, //  DELAY BEFORE TRANSITION
         },
+
+
+      LookDownBeforeEncode: {
+      invoke: {
+        src: "lookTheDrawing",
+        input: () => null,
+        onDone: {
+          target: "GetDescription"
+        }
+      }
+    },
+
 
 
 
@@ -1597,12 +1934,31 @@ Prompt: {
         
         
 
+ ChangeToGreekVoice15: {
+        invoke: {
+          src: "fhChangeVoice",
+          input: () => ({
+            voice: "AthinaNeural",//"Dimitris22k_HQ",
+            character: "default" 
+          }),
+          onDone: { target: "AskUserToDraw"},//"AskUserToDraw" },
+        }
+      },
 
 
 
 
 
-
+ChangeEnglishVoice6: {
+        invoke: {
+          src: "fhChangeVoice",
+          input: () => ({
+            voice: "Ruth-Neural",//"Tracy22k_HQ",
+            character: "default" 
+          }),
+          onDone: { target: "EndSession" },
+        }
+      },  
 
 
 
@@ -1795,20 +2151,52 @@ Listen: {},
 },
   },
 
-  
 
-  on: {
+
+on: {
   NEXT_TASK: [
     {
-      guard: ({ context }) => context.currentTaskIndex < context.drawingTasks.length,
-      target: ".PromptAndAsk.AskUserToDraw"
+      // If all tasks are done
+      guard: ({ context }) => context.currentTaskIndex + 1 >= context.drawingTasks.length,
+      actions: ({ context }) => {
+        console.log("✅ All tasks done:", context.currentTaskIndex, context.drawingTasks.length);
+      },
+      target: ".PromptAndAsk.EndSession"
     },
     {
-      guard: ({ context }) => context.currentTaskIndex >= context.drawingTasks.length,
-      target: ".PromptAndAsk.EndSession"
+      // Still have more tasks
+      guard: ({ context }) => context.currentTaskIndex + 1 < context.drawingTasks.length,
+      actions: assign(({ context }) => ({
+        currentTaskIndex: context.currentTaskIndex + 1
+      })),
+      target: ".PromptAndAsk.ChangeToGreekVoice"
     }
   ]
-},
+}
+
+  
+  
+
+//   on: {
+//   NEXT_TASK: [
+//     {
+//       guard: ({ context }) => context.currentTaskIndex >= context.drawingTasks.length,
+//       actions:({ context }) => console.log(context.currentTaskIndex, context.drawingTasks.length ),
+//       target:  ".PromptAndAsk.EndSession" //".PromptAndAsk.ChangeEnglishVoice6"
+//     },
+//     // {
+//     //   guard: ({ context }) => context.currentTaskIndex >= context.drawingTasks.length,
+//     //   actions:({ context }) => console.log(context.currentTaskIndex, context.drawingTasks.length ),
+//     //   target:  ".PromptAndAsk.EndSession" //".PromptAndAsk.ChangeEnglishVoice6"
+//     // },
+//     {
+//       guard: ({ context }) => context.currentTaskIndex < context.drawingTasks.length,
+//       actions:({ context }) => console.log(context.currentTaskIndex, context.drawingTasks.length ),
+//       target: ".PromptAndAsk.ChangeToGreekVoice"//".PromptAndAsk.AskUserToDraw"
+//     },
+    
+//   ]
+// },
 
   //  on: {
   //   NEXT_TASK: {
@@ -1930,10 +2318,22 @@ export function initWhiteboard() {
   }
 
   function clearCanvas() {
-    console.log("Clearing canvas");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawingHistory = []; 
-  }
+  console.log("Clearing canvas");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Fill canvas with white
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  drawingHistory = [];
+}
+
+
+  // function clearCanvas() {
+  //   console.log("Clearing canvas");
+  //   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  //   drawingHistory = []; 
+  // }
 
   function captureCanvasImage() {
     return canvas.toDataURL("image/png"); 
