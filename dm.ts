@@ -25,6 +25,7 @@ const settings = {
   ttsDefaultVoice: "en-US-AvaNeural", //"el-GR-AthinaNeural",//"en-US-AvaNeural" // en-US-DavisNeural",
 };
 
+
 interface Frame {
   time: number;
   params: any;
@@ -207,13 +208,13 @@ const drawingTasks: DrawingTask[] = [
     //labels: { apple: true, box: true, inFrontOf: true },
     voice: "el-GR-AthinaNeural" 
   },
-  { 
-    prompt: "ένα μήλο ανάμεσα στο κουτί και το δέντρο.", 
-    english: "an apple between the box and the tree",
-    labels: { obj1: "apple", obj2: "box", obj3: "tree", relation: "between" },
-    //labels: { apple: true, box: true, tree: true, between: true },
-    voice: "el-GR-AthinaNeural" 
-  },
+  // { 
+  //   prompt: "ένα μήλο ανάμεσα στο κουτί και το δέντρο.", 
+  //   english: "an apple between the box and the tree",
+  //   labels: { obj1: "apple", obj2: "box", obj3: "tree", relation: "between" },
+  //   //labels: { apple: true, box: true, tree: true, between: true },
+  //   voice: "el-GR-AthinaNeural" 
+  // },
   { 
     prompt: "ένα μήλο δίπλα στο κουτί.", 
     english: "an apple next to the box",
@@ -339,15 +340,17 @@ async function lookthedrawing() {
           time: [0.0, 0.5],
           persist: true,
           params: {
-            NECK_TILT: +45,        
-            GAZE_TILT: -30,        
+            NECK_TILT: +50,        
+            GAZE_TILT: -40,        
             SMILE_CLOSED: 0.2,
-            EYE_SQUINT_LEFT: 0.2,
-            EYE_SQUINT_RIGHT: 0.2
+            EYE_SQUINT_LEFT: 0.15,  // Optional: adds expressiveness
+            EYE_SQUINT_RIGHT: 0.15
+            //EYE_SQUINT_LEFT: 0.2,
+            //EYE_SQUINT_RIGHT: 0.2
           }
         },
         {
-          time: [2.0],
+          time: [7.0],
           persist: false,
           params: {
             reset: true
@@ -651,7 +654,7 @@ Please reply with a JSON object:
           log: result,
           image64: `-----BEGIN IMAGE BASE64-----\n${input.image}\n-----END IMAGE BASE64-----`,
           source: "drawing_flow",
-          llm_response: fullResponse
+          //llm_response: fullResponse  //LOG THE LLMS RESPONSE 
          // image64: input.image,            
   })
 });
@@ -1213,7 +1216,7 @@ SayCorrectSpeakInitial: {
     invoke: {
     src: "fhSpeak",
     input: ({
-      text: `Unfortunately, you need to do more.`
+      text: `Unfortunately,there is something wrong in your drawing.`
     }),
     onDone: {
       target: "listening" 
@@ -1593,28 +1596,71 @@ SpeakGreeting: {
               return { model: "llava:34b", image: context.image64 };
             },
 
+            onDone: {
+  target: "GetBinaryClassification",
+  actions: assign(({ event, context }) => {
+    const currentTask = drawingTasks[context.currentTaskIndex];
+    const llmResponse = event.output?.response || "No content received.";
+    console.log("LLM's description response:", llmResponse);
+
+    fetch("http://127.0.0.1:5000/log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session: context.session_id,
+        prompt: currentTask?.prompt || "No prompt",
+        image64: context.image64,
+        source: "description_flow",
+        llm_response: llmResponse,
+        timestamp: new Date().toISOString(),
+      }),
+    });
+
+    return {
+      messages: [
+        {
+          role: "assistant",
+          content: llmResponse
+        },
+      ],
+      llmresponse: llmResponse // save in context in case you want to use it later
+    };
+  }),
+},
+          },
+        },
+
+
 
             //input: ({ context }) => ({ model: "llava", image: context.image64! }),
 
      //      input: ({ context }) => ({ image: context.image64! }),
-            onDone: {
-              target: "GetBinaryClassification", //"DescribeDrawing",
+        // Apo edo onDone: {
+        //       target: "GetBinaryClassification", //"DescribeDrawing",
 
-              actions: assign(({ event }) => {
-                console.log("Event Output:", event.output); 
+        //       actions: assign(({ event }) => {
+        //      const llmResponse = event.output?.responnse || "No content received.";
+        //     console.log("llms response:", llmResponse);
+        //      // console.log("Event Output:", event.output); 
+
+
+
               
-                return {
-                  messages: [
-                    { 
-                      role: "assistant", 
-                      content: event.output?.response || "No content received." // CHANGED THIS content: event.output?.message?.content
-                    },
-                  ],
-                };
-              }),
-            },
-          },
-        },
+              
+        //         return {
+        //           messages: [
+        //             { 
+        //               role: "assistant", 
+        //                 content: llmResponse
+        //              // content: event.output?.response || "No content received." // CHANGED THIS content: event.output?.message?.content
+        //             },
+        //           ],
+        //           llmresponse: llmResponse
+        //         };
+        //       }),
+        //     },
+        //   },
+        // }, mexri edo  
 
 
 
