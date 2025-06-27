@@ -281,12 +281,17 @@ interface MyDMContext extends DMContext {
   description: string;
   drawingTasks: { // 
     prompt: string; 
+    english: string;
     labels: LabelMap;
     //labels: Record<string, boolean>; 
   }[];
   isCorrect: boolean;
   currentPrompt: string;
   session_id:string;
+  llmResponse?: string;  
+  //currentTask?: string;
+
+
 
 
   
@@ -798,6 +803,123 @@ createEventsFromStream:  fromCallback(
 
 
 
+getFeedback: fromPromise<any, { model: string; image?: string; isCorrect: boolean; taskDescription: string }>(
+  async ({ input }) => {
+    const basePrompt = input.isCorrect
+      ? "The drawing has been marked as correct. Please explain in simple English why it looks correct. BE BRIEF"
+      : "The drawing has been marked as incorrect. Please explain in simple English what is wrong or missing. BE BRIEF";
+
+    // 👇 Embed the original task clearly as context, but keep it wrapped in English
+    const prompt = `${basePrompt}\n\nThe original drawing instruction was:\n"${input.taskDescription}"\n\nBe concise and clear.`;
+
+    console.log("Prompt to LLM:", prompt);
+
+    const response = await fetch("http://localhost:11434/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: input.model ?? "llava:13b", // 🔁 optionally fallback to a faster model
+        temperature: 0.8,                  // 🔁 4 is *way too high*, leads to hallucination
+        images: input.image ? [input.image] : [],
+        prompt: prompt,
+      }),
+    });
+
+    const text = await response.text();
+    console.log("Raw NDJSON Response:", text);
+
+    const lines = text.trim().split("\n").filter(line => line.trim() !== "");
+    const data = lines.map(line => JSON.parse(line));
+    const fullResponse = data.map(obj => obj.response).join("");
+
+    console.log("Full Description:", fullResponse);
+
+    return {
+      model: data[0].model,
+      response: fullResponse,
+      done: data[data.length - 1].done
+    };
+  }
+),
+
+
+
+  getFeedback1: fromPromise<any, { model: string; image?: string; isCorrect: boolean; taskDescription: string }>(
+  async ({ input }) => {
+    const basePrompt = input.isCorrect
+      ? "The drawing is correct. Explain why it looks correct. Use simple language."
+      : "The drawing is wrong. Explain what is missing or incorrect. Be very simple.";
+
+    const prompt = `${basePrompt} The drawing task was: "${input.taskDescription}"`;
+
+    console.log("Prompt to LLM:", prompt);
+
+        console.log(`Sending feedback request with prompt: "${prompt}"`);
+        const response = await fetch("http://localhost:11434/api/generate", {
+          //const response = await fetch("http://mltgpu.flov.gu.se:11434/api/generate", {
+
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            temperature: 4,
+            model: "llava:34b",//"llava:13b",
+            prompt: prompt,
+      
+            images: [input.image],
+          }),
+        });
+        
+        // NDJSON format
+        const text = await response.text();
+        console.log("Raw NDJSON Response:", text);
+        
+        const lines = text.trim().split("\n").filter(line => line.trim() !== "");
+        const data = lines.map(line => JSON.parse(line)); //JSON => object
+        //JOIN ALL THE STRINGS, BECAUSE IN THE BEGINNING i WAS GETTING JUST ONE WORD
+        const fullResponse = data.map(Object => Object.response).join("");
+        console.log("Full Description:", fullResponse);
+        
+        // RETURN THE FULL RESPONSE
+        return { model: data[0].model, response: fullResponse, done: data[data.length - 1].done };
+      }
+    ),
+
+
+
+
+
+    getLLMFeedback: fromPromise<any, { model: string; image: string; isCorrect: boolean; taskDescription: string }>(
+  async ({ input }) => {
+    const basePrompt = input.isCorrect
+      ? "The drawing is correct. Explain why it looks correct. Use simple language. BE VERY BRIEF"
+      : "The drawing is wrong. Explain what is missing or incorrect. Be very simple. BE VERY BRIEF";
+
+    const prompt = `${basePrompt} The drawing task was: "${input.taskDescription}"`;
+
+    console.log("Prompt to LLM:", prompt);
+
+    const response = await fetch("http://localhost:11434/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        temperature: 0.8,
+        model: input.model,
+        prompt,
+        images: [input.image],
+      }),
+    });
+
+
+
+    const result = await response.json();
+    console.log("this is the llms response", result)
+    return result.response || "I couldn't analyze the drawing.";
+  }
+),
+
+
+
+
 
 
     getDescription: fromPromise<any, { model: string; image: string; /* currentTaskIndex: number; */ }>(
@@ -936,7 +1058,6 @@ createEventsFromStream:  fromCallback(
   states: {
 
 
-
     ButtonEvaluation: {
       id: "ButtonEvaluation",
       initial: "listening",
@@ -946,98 +1067,68 @@ createEventsFromStream:  fromCallback(
       },
       on: {
 
-        START_EVALUATION: "ButtonEvaluation.EncodeImage",//"EncodeImage",
-
-         
+        START_EVALUATION: "ButtonEvaluation.EncodeImage",//"EncodeImage", 
 
 
-      
 
-  // IMAGE_READY: {
-  //   actions: assign({
-  //     image64: (_, event) => (event as any)?.image64 || "",
-  //    // image64: (_, event) => event.image64,
-  //   }),
-  // },
-  EVALUATION_RECEIVED: [
-    {
-      guard: ({ event }) => event.data.result === "correct",
-      actions: [
-        assign({ isCorrect: () => true }),
-        ({ context }) => {
-          fetch("http://127.0.0.1:5000/log", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              session: context.session_id,
-              evaluation: "correct",
-              evaluation_timestamp: new Date().toISOString(),
-              image64: context.image64,
-              source: "evaluation",
-            }),
-          });
-        },
-      ],
-      target: ".sayCorrect",
+// ButtonEvaluation: {
+//   id: "ButtonEvaluation",
+//   initial: "listening",
+//   invoke: {
+//     src: "createEventsFromStream",
+//     input: ({ context }) => ({ streamId: context.session_id, image: context.image64 || "" }),
+//   },
+//   on: {
+//     START_EVALUATION: "ButtonEvaluation.EncodeImage",//"EncodeImage",
 
-  
-    },
+    EVALUATION_RECEIVED: [
+      {
+        guard: ({ event }) => event.data.result === "correct",
+        actions: [
+          assign({ isCorrect: () => true }),
+          ({ context }) => {
+            fetch("http://127.0.0.1:5000/log", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                session: context.session_id,
+                evaluation: "correct",
+                evaluation_timestamp: new Date().toISOString(),
+                image64: context.image64,
+                source: "evaluation",
+              }),
+            });
+          },
+        ],
+        target: ".SendFeedbackPositive"//".SendFeedback",
+      },
+      {
+        guard: ({ event }) => event.data.result === "wrong",
+        actions: [
+          assign({ isCorrect: () => false }),
+          ({ context }) => {
+            fetch("http://127.0.0.1:5000/log", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                session: context.session_id,
+                evaluation: "wrong",
+                evaluation_timestamp: new Date().toISOString(),
+                image64: context.image64,
+                source: "evaluation",
+              }),
+            });
+          },
+        ],
+        target: ".SendFeedbackNegative",//".SendFeedback",
+      },
+    ],
+  },
 
+  states: {
+    listening: {},
 
-     {
-  guard: ({ event }) => event.data.result === "wrong",
-  actions: [
-    assign({ isCorrect: () => false }),
-    ({ context }) => {  
-      fetch("http://127.0.0.1:5000/log", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session: context.session_id,
-          evaluation: "wrong",
-          evaluation_timestamp: new Date().toISOString(),
-          image64: context.image64,
-          source: "evaluation",
-        }),
-      });
-    },
-  ],
-  target: ".ChangeToEnglishVoice5",
-}
-
-
-  ],
-},
-
-      // on: {
-      //   EVALUATION_RECEIVED: [
-      //     {
-      //       guard: ({ event }) => event.data.result === "correct",
-      //       actions: assign({ isCorrect: () => true }),
-      //       target: ".sayCorrect"
-      //     },
-      //     {
-      //       guard: ({ event }) => event.data.result === "wrong",
-      //       actions: assign({ isCorrect: () => false }),
-      //       target: ".ChangeToEnglishVoice5", //".sayWrong"
-      //     },
-      //   ]
-      // },
-      states: {
-        listening: {},
-
-
-    //   LookDownBeforeEncode: {
-    //   invoke: {
-    //     src: "lookTheDrawing",
-    //     input: () => null,
-    //     onDone: {
-    //       target: "EncodeImage"
-    //     }
-    //   }
-    // },
-
-         EncodeImage: {
+  EncodeImage: {
           entry: [
             "encode_image", 
             () => {
@@ -1049,183 +1140,487 @@ createEventsFromStream:  fromCallback(
         },
 
 
-  ChangeToEnglishVoice5: {
-        invoke: {
-          src: "fhChangeVoice",
-          input: () => ({
-            voice: "Ruth-Neural",//"Tracy22k_HQ",
-            character: "default" 
-          }),
-          onDone: { target: "sayWrong" },
-        }
-      },         
-
-        
-sayCorrect: {
-  always: {
-    guard: ({ context }) => context.isCorrect,
-    target: "ChangeToEnglishVoice4"//"SayCorrectSpeak"
-  },
-
-},
-
-
-  ChangeToEnglishVoice4: {
-        invoke: {
-          src: "fhChangeVoice",
-          input: () => ({
-            voice: "Ruth-Neural",//"Tracy22k_HQ",
-            character: "default" 
-          }),
-          onDone: { target: "SayCorrectSpeak" },
-        }
-      },  
-
-SayCorrectSpeak: {
+SendFeedbackPositive: {
   invoke: {
-    src: "fhSpeak",
-    input: () => ({
-      text: "BRAVO THIS IS CORRECT"
-    }),
+    src: "getFeedback",
+    input: ({ context }) => {
+      const currentTask = context.drawingTasks?.[context.currentTaskIndex];
+      if (!context.image64) {
+        console.error("No image captured!"); 
+        return {
+          model: "llava:34b",
+          image: "",
+          isCorrect: context.isCorrect ?? false,             
+          taskDescription: currentTask?.prompt || "No desc",
+        };  
+      }
+      console.log("Base64 image:", context.image64.substring(0, 30) + "..."); 
+      
+      return {
+        model: "llava:34b",
+        image: context.image64,
+        isCorrect: context.isCorrect ?? false,               
+        taskDescription: currentTask?.english || "No DESC",
+      };
+    },
     onDone: {
-      actions: raise(() => ({ type: "NEXT_TASK" })), //raise({ type: "NEXT_TASK" }), 
-      target:"listening"//"ChangeToGreekVoice1", //"CheckIfCorrect"
-    }
-  }
+      target: "SpeakLLMFeedbackPositive",//"SpeakLLMFeedback",
+      actions: assign(({ event, context }) => {
+        const currentTask = context.drawingTasks?.[context.currentTaskIndex];
+        const llmResponse = event.output?.response;
+        console.log("LLM's description response:", llmResponse);
+
+        fetch("http://127.0.0.1:5000/log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session: context.session_id,
+            prompt: currentTask?.prompt || "No prompt",
+            image64: context.image64,
+            source: "description_flow",
+            llm_response: llmResponse,
+            timestamp: new Date().toISOString(),
+          }),
+        });
+
+        return {
+          messages: [
+            {
+              role: "assistant",
+              content: llmResponse,
+            },
+          ],
+          llmResponse: llmResponse,
+        };
+      }),
+    },
+  },
 },
 
-//  ChangeToGreekVoice1: {
+
+
+
+
+SendFeedbackNegative: {
+  invoke: {
+    src: "getFeedback",
+    input: ({ context }) => {
+      const currentTask = context.drawingTasks?.[context.currentTaskIndex];
+      if (!context.image64) {
+        console.error("No image captured!"); 
+        return {
+          model: "llava:34b",
+          image: "",
+          isCorrect: context.isCorrect ?? false,             
+          taskDescription: currentTask?.prompt || "No desc",
+        };  
+      }
+      console.log("Base64 image:", context.image64.substring(0, 30) + "..."); 
+      
+      return {
+        model: "llava:34b",
+        image: context.image64,
+        isCorrect: context.isCorrect ?? false,               
+        taskDescription: currentTask?.english || "No DESC",
+      };
+    },
+    onDone: {
+      target: "SpeakLLMFeedbackNegative",//"SpeakLLMFeedback",
+      actions: assign(({ event, context }) => {
+        const currentTask = context.drawingTasks?.[context.currentTaskIndex];
+        const llmResponse = event.output?.response;
+        console.log("LLM's description response:", llmResponse);
+
+        fetch("http://127.0.0.1:5000/log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session: context.session_id,
+            prompt: currentTask?.prompt || "No prompt",
+            image64: context.image64,
+            source: "description_flow",
+            llm_response: llmResponse,
+            timestamp: new Date().toISOString(),
+          }),
+        });
+
+        return {
+          messages: [
+            {
+              role: "assistant",
+              content: llmResponse,
+            },
+          ],
+          llmResponse: llmResponse,
+        };
+      }),
+    },
+  },
+},
+
+
+//     SendLLMFeedback: {
+//     invoke: {
+//     src: "getLLMFeedback",
+//     input: ({ context }) => {
+//       const currentTask = context.drawingTasks?.[context.currentTaskIndex];
+//       return {
+//         model: "llava:34b",
+//         image: context.image64 ?? "",        
+//         isCorrect: context.isCorrect,
+//         taskDescription: currentTask?.prompt || "EMPTY DESCRIP",
+//       };
+//     },
+//     onDone: {
+//       target: "SpeakLLMFeedback",
+//     actions: assign({
+//     llmResponse: (_, event) => {
+//     console.log("LLM responsE:", (event as any)?.data);
+//     return (event as any)?.data || "No data";
+//   },
+// }),
+
+//       // actions: assign({
+        
+//       //   llmResponse: (_, event) => (event as any)?.data || "No data",
+//       // }),
+//     },
+//   },
+// },
+
+
+   
+
+    SpeakLLMFeedbackPositive: {
+      invoke: {
+        src: "fhSpeak",
+        input: ({ context }) => ({
+
+      text: context.llmResponse ?? "Sorry, I don't have feedback right now."
+    }),
+       // input: ({ context }) => ({ text: context.llmResponse }),
+        onDone: {
+          actions: raise(() => ({ type: "NEXT_TASK" })), //I SHOULD HAVE THIS ONLY FOR THE POSITIVE FEEDBACK 
+          target: "listening",
+        },
+      },
+    },
+
+   
+  
+
+
+ SpeakLLMFeedbackNegative: {
+      invoke: {
+        src: "fhSpeak",
+        input: ({ context }) => ({
+
+      text: context.llmResponse ?? "Sorry, I don't have feedback right now."
+    }),
+       // input: ({ context }) => ({ text: context.llmResponse }),
+        onDone: {
+          //actions: raise(() => ({ type: "NEXT_TASK" })), //I SHOULD HAVE THIS ONLY FOR THE POSITIVE FEEDBACK 
+          target: "listening",
+        },
+      },
+    },
+
+   
+  },
+},
+
+
+
+
+//     ButtonEvaluation: {
+//       id: "ButtonEvaluation",
+//       initial: "listening",
+//       invoke: {
+//         src: "createEventsFromStream",
+//         input: ({ context }) => ({ streamId: context.session_id, image: context.image64 || "" }),
+//       },
+//       on: {
+
+//         START_EVALUATION: "ButtonEvaluation.EncodeImage",//"EncodeImage",
+
+         
+
+
+      
+
+//   // IMAGE_READY: {
+//   //   actions: assign({
+//   //     image64: (_, event) => (event as any)?.image64 || "",
+//   //    // image64: (_, event) => event.image64,
+//   //   }),
+//   // },
+//   EVALUATION_RECEIVED: [
+//     {
+//       guard: ({ event }) => event.data.result === "correct",
+//       actions: [
+//         assign({ isCorrect: () => true }),
+//         ({ context }) => {
+//           fetch("http://127.0.0.1:5000/log", {
+//             method: "POST",
+//             headers: { "Content-Type": "application/json" },
+//             body: JSON.stringify({
+//               session: context.session_id,
+//               evaluation: "correct",
+//               evaluation_timestamp: new Date().toISOString(),
+//               image64: context.image64,
+//               source: "evaluation",
+//             }),
+//           });
+//         },
+//       ],
+//       target: ".sayCorrect",
+
+  
+//     },
+
+
+//      {
+//   guard: ({ event }) => event.data.result === "wrong",
+//   actions: [
+//     assign({ isCorrect: () => false }),
+//     ({ context }) => {  
+//       fetch("http://127.0.0.1:5000/log", {
+//         method: "POST",
+//         headers: { "Content-Type": "application/json" },
+//         body: JSON.stringify({
+//           session: context.session_id,
+//           evaluation: "wrong",
+//           evaluation_timestamp: new Date().toISOString(),
+//           image64: context.image64,
+//           source: "evaluation",
+//         }),
+//       });
+//     },
+//   ],
+//   target: ".ChangeToEnglishVoice5",
+// }
+
+
+//   ],
+// },
+
+//       // on: {
+//       //   EVALUATION_RECEIVED: [
+//       //     {
+//       //       guard: ({ event }) => event.data.result === "correct",
+//       //       actions: assign({ isCorrect: () => true }),
+//       //       target: ".sayCorrect"
+//       //     },
+//       //     {
+//       //       guard: ({ event }) => event.data.result === "wrong",
+//       //       actions: assign({ isCorrect: () => false }),
+//       //       target: ".ChangeToEnglishVoice5", //".sayWrong"
+//       //     },
+//       //   ]
+//       // },
+//       states: {
+//         listening: {},
+
+
+//     //   LookDownBeforeEncode: {
+//     //   invoke: {
+//     //     src: "lookTheDrawing",
+//     //     input: () => null,
+//     //     onDone: {
+//     //       target: "EncodeImage"
+//     //     }
+//     //   }
+//     // },
+
+//          EncodeImage: {
+//           entry: [
+//             "encode_image", 
+//             () => {
+//               //console.log("Encoded image, transitioning to GetDescription...");
+//             },
+//           ],
+//         //  after:{ 100: "" },
+//          // after:{ 100: "GetDescription" }, //  DELAY BEFORE TRANSITION
+//         },
+
+
+//   ChangeToEnglishVoice5: {
 //         invoke: {
 //           src: "fhChangeVoice",
 //           input: () => ({
-//             voice: "AthinaNeural",//"Dimitris22k_HQ",
+//             voice: "Ruth-Neural",//"Tracy22k_HQ",
 //             character: "default" 
 //           }),
-//           onDone: { target: "CheckIfCorrect"},//"AskUserToDraw" },
+//           onDone: { target: "sayWrong" },
 //         }
-//       },
+//       },         
+
+        
+// sayCorrect: {
+//   always: {
+//     guard: ({ context }) => context.isCorrect,
+//     target: "ChangeToEnglishVoice4"//"SayCorrectSpeak"
+//   },
+
+// },
+
+
+//   ChangeToEnglishVoice4: {
+//         invoke: {
+//           src: "fhChangeVoice",
+//           input: () => ({
+//             voice: "Ruth-Neural",//"Tracy22k_HQ",
+//             character: "default" 
+//           }),
+//           onDone: { target: "SayCorrectSpeak" },
+//         }
+//       },  
+
+// SayCorrectSpeak: {
+//   invoke: {
+//     src: "fhSpeak",
+//     input: () => ({
+//       text: "BRAVO THIS IS CORRECT"
+//     }),
+//     onDone: {
+//       actions: raise(() => ({ type: "NEXT_TASK" })), //raise({ type: "NEXT_TASK" }), 
+//       target:"listening"//"ChangeToGreekVoice1", //"CheckIfCorrect"
+//     }
+//   }
+// },
+
+// //  ChangeToGreekVoice1: {
+// //         invoke: {
+// //           src: "fhChangeVoice",
+// //           input: () => ({
+// //             voice: "AthinaNeural",//"Dimitris22k_HQ",
+// //             character: "default" 
+// //           }),
+// //           onDone: { target: "CheckIfCorrect"},//"AskUserToDraw" },
+// //         }
+// //       },
 
 
 
-SayCorrectSpeakInitial: {
-  invoke: {
-    src: "fhSpeak",
-    input: () => ({
-      text: "BRAVO THIS IS CORRECT"
-    }),
-    onDone: {
-      target: "listening", //"CheckIfCorrect"
-    }
-  }
-},
+// SayCorrectSpeakInitial: {
+//   invoke: {
+//     src: "fhSpeak",
+//     input: () => ({
+//       text: "BRAVO THIS IS CORRECT"
+//     }),
+//     onDone: {
+//       target: "listening", //"CheckIfCorrect"
+//     }
+//   }
+// },
 
 
 
 
-  // CheckIfCorrect: {
-  //         always: [
-  //           {
-  //             guard: ({ context }) => context.isCorrect, 
-  //             actions: assign(({ context }) => ({
-  //               currentTaskIndex: context.currentTaskIndex + 1,
-  //             })),
-  //             target: "CheckNextTask",
-  //           },
-  //           {
-  //             guard: ({ context }) => !context.isCorrect, 
-  //             target: "listening", //NEED CHANGE??
-  //           }
-  //         ]
-  //       },
+//   // CheckIfCorrect: {
+//   //         always: [
+//   //           {
+//   //             guard: ({ context }) => context.isCorrect, 
+//   //             actions: assign(({ context }) => ({
+//   //               currentTaskIndex: context.currentTaskIndex + 1,
+//   //             })),
+//   //             target: "CheckNextTask",
+//   //           },
+//   //           {
+//   //             guard: ({ context }) => !context.isCorrect, 
+//   //             target: "listening", //NEED CHANGE??
+//   //           }
+//   //         ]
+//   //       },
 
 
-  //       CheckNextTask: {
-  //         always: [
-  //           {
-  //             guard: ({ context }) => context.currentTaskIndex < context.drawingTasks.length,
-  //             target: "listening", 
-  //           },
-  //           {
-  //             guard: ({ context }) => context.currentTaskIndex >= context.drawingTasks.length,
-  //             target:  "listening", // I THINK THE ISSUE WITH END SESSION IS HERE AS IT CONTINUES LISTENING SO THERE IS A PROBLEM IT SHOULD TARGET THE END SESSION PART   
-  //           }
-  //         ]
-  //       },
+//   //       CheckNextTask: {
+//   //         always: [
+//   //           {
+//   //             guard: ({ context }) => context.currentTaskIndex < context.drawingTasks.length,
+//   //             target: "listening", 
+//   //           },
+//   //           {
+//   //             guard: ({ context }) => context.currentTaskIndex >= context.drawingTasks.length,
+//   //             target:  "listening", // I THINK THE ISSUE WITH END SESSION IS HERE AS IT CONTINUES LISTENING SO THERE IS A PROBLEM IT SHOULD TARGET THE END SESSION PART   
+//   //           }
+//   //         ]
+//   //       },
 
 
 
 
-        ChangeEnglishVoice25: {
-        entry: () => console.log("ChangeEnglishVoice25 state"),
-        invoke: {
-          src: "fhChangeVoice",
-          input: () => ({
-            voice: "Ruth-Neural",//"Tracy22k_HQ",
-            character: "default" 
-          }),
-          onDone: { target: "EndSession" },
-        }
-      },  
-
-        EndSession: {
-      invoke: {
-    src: "fhSpeak",
-    input: () => ({
-      text: "Great job! You've completed all the drawing challenges. See you next time!"
-    }),
-    onDone: {
-      actions: () => console.log("ends session"),
-  
-    }
-  }
-},
-
-
-        //   EndSession: {
-        //   entry: {
-        //     type: "speechstate_speak",
-        //     params: { value: "Great job! You've completed all the drawing challenges. See you next time!" }
-        //   }
-        // },
-
-
+//         ChangeEnglishVoice25: {
+//         entry: () => console.log("ChangeEnglishVoice25 state"),
+//         invoke: {
+//           src: "fhChangeVoice",
+//           input: () => ({
+//             voice: "Ruth-Neural",//"Tracy22k_HQ",
+//             character: "default" 
+//           }),
+//           onDone: { target: "EndSession" },
+//         }
+//       },  
 
 //         EndSession: {
 //       invoke: {
-//       src: "fhSpeak",
-//       input: () => ({
+//     src: "fhSpeak",
+//     input: () => ({
 //       text: "Great job! You've completed all the drawing challenges. See you next time!"
 //     }),
-    
+//     onDone: {
+//       actions: () => console.log("ends session"),
+  
+//     }
 //   }
 // },
+
+
+//         //   EndSession: {
+//         //   entry: {
+//         //     type: "speechstate_speak",
+//         //     params: { value: "Great job! You've completed all the drawing challenges. See you next time!" }
+//         //   }
+//         // },
+
+
+
+// //         EndSession: {
+// //       invoke: {
+// //       src: "fhSpeak",
+// //       input: () => ({
+// //       text: "Great job! You've completed all the drawing challenges. See you next time!"
+// //     }),
+    
+// //   }
+// // },
         
         
         
   
     
-        // sayCorrect: {
-        //   invoke: {
-        //     src: "fhSpeak",
-        //     input: () => ({ text: "BRAVO THIS IS CORRECT" }),
-        //     onDone: { target: "listening" },
-        //   },
-        // },
+//         // sayCorrect: {
+//         //   invoke: {
+//         //     src: "fhSpeak",
+//         //     input: () => ({ text: "BRAVO THIS IS CORRECT" }),
+//         //     onDone: { target: "listening" },
+//         //   },
+//         // },
 
-    sayWrong: {
-    invoke: {
-    src: "fhSpeak",
-    input: ({
-      text: `Unfortunately,there is something wrong in your drawing.`
-    }),
-    onDone: {
-      target: "listening" 
-    },
+//     sayWrong: {
+//     invoke: {
+//     src: "fhSpeak",
+//     input: ({
+//       text: `Unfortunately,there is something wrong in your drawing.`
+//     }),
+//     onDone: {
+//       target: "listening" 
+//     },
     
-  }
-},
-      }
-    },
+//   }
+// },
+//       }
+//     },
 
 
 
@@ -1623,7 +2018,7 @@ SpeakGreeting: {
           content: llmResponse
         },
       ],
-      llmresponse: llmResponse // save in context in case you want to use it later
+      llmresponse: llmResponse
     };
   }),
 },
@@ -2202,15 +2597,13 @@ Listen: {},
 on: {
   NEXT_TASK: [
     {
-      // If all tasks are done
       guard: ({ context }) => context.currentTaskIndex + 1 >= context.drawingTasks.length,
       actions: ({ context }) => {
-        console.log("✅ All tasks done:", context.currentTaskIndex, context.drawingTasks.length);
+        console.log("All tasks done:", context.currentTaskIndex, context.drawingTasks.length);
       },
       target: ".PromptAndAsk.EndSession"
     },
     {
-      // Still have more tasks
       guard: ({ context }) => context.currentTaskIndex + 1 < context.drawingTasks.length,
       actions: assign(({ context }) => ({
         currentTaskIndex: context.currentTaskIndex + 1
