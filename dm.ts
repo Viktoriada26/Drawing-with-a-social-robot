@@ -358,6 +358,9 @@ interface MyDMContext extends DMContext {
   currentPrompt: string;
   session_id:string;
   llmResponse?: string;  
+  characterName: string;
+  feedback?: number;  // THIS IS IMPORTANT
+
   //currentTask?: string;
 
 
@@ -377,6 +380,11 @@ interface DMContext {
   isCorrect: boolean;
   currentPrompt: string;
   session_id:string;
+  feedback?: number;
+  characterName: string;
+  taskResults: Array<{ taskIndex: number; correct: boolean }>;
+
+
 
 
 }
@@ -1086,7 +1094,7 @@ getFeedback: fromPromise<any, { model: string; image?: string; isCorrect: boolea
     drawingTasks: assignGroupedFeedback(drawingTasks, feedback === 1),
     characterName: CHARACTER_mapping[groups[pointer][0]],
     llmResponse: "",
-    feedbackVariant: groups[pointer][1],  //1 WOULD BE THE SECOND CASE
+    feedback: groups[pointer][1],  //1 WOULD BE THE SECOND CASE
     taskResults: [],
     
   }),
@@ -1173,7 +1181,7 @@ getFeedback: fromPromise<any, { model: string; image?: string; isCorrect: boolea
             });
           },
         ],
-        target: ".SendFeedbackPositive"//".SendFeedback",
+        target: ".SendFeedbackPositiveLLMPILOT"//".SendFeedback",
       },
       {
         guard: ({ event }) => event.data.result === "wrong",
@@ -1212,8 +1220,21 @@ getFeedback: fromPromise<any, { model: string; image?: string; isCorrect: boolea
          // after:{ 100: "GetDescription" }, //  DELAY BEFORE TRANSITION
         },
 
+ SendFeedbackPositiveLLMPILOT: {
+      always: [
+        {
+          guard: ({ context }) => context.feedback === 1, // LLM 
+          target: "SendFeedbackPositiveLLM",
+        },
+        {
+          guard:  ({ context }) => context.feedback === 0, // PILOT
+          target: "SpeakSimplePositive",
+        },
+      ],
+    },
 
-SendFeedbackPositive: {
+
+SendFeedbackPositiveLLM: {
   invoke: {
     src: "getFeedback",
     input: ({ context }) => {
@@ -1272,9 +1293,49 @@ SendFeedbackPositive: {
 
 
 
+    SpeakSimplePositive: {
+      invoke: {
+        src: "fhSpeak",
+        input: () => ({ text: "Good job!" }),
+        onDone: "AfterFeedbackPositive",
+      },
+    },
+
+     SpeakLLMFeedbackPositive: {
+      invoke: {
+        src: "fhSpeak",
+        input: ({ context }) => ({
+
+      text: context.llmResponse ?? "Sorry, I don't have feedback right now."
+    }),
+       // input: ({ context }) => ({ text: context.llmResponse }),
+        onDone: {
+          actions: raise(() => ({ type: "NEXT_TASK" })), //I SHOULD HAVE THIS ONLY FOR THE POSITIVE FEEDBACK 
+          target: "listening",
+        },
+      },
+    },
 
 
-SendFeedbackNegative: {
+    
+
+    SendFeedbackNegative: {
+      always: [
+        {
+          guard: ({context}) => context.feedback === 1,
+          target: "SendFeedbackNegativeLLM",
+        },
+        {
+          guard: ({context}) => context.feedback === 0,
+          target: "SpeakSimpleNegative",
+        },
+      ],
+    },
+
+
+    
+
+SendFeedbackNegativeLLM: {
   invoke: {
     src: "getFeedback",
     input: ({ context }) => {
@@ -1332,6 +1393,129 @@ SendFeedbackNegative: {
 },
 
 
+
+
+AfterFeedbackPositive: {
+  entry: assign(({ context }) => {
+    // Save the result for the current task
+    const newResults = [
+      ...(context.taskResults || []),
+      { taskIndex: context.currentTaskIndex, correct: context.isCorrect },
+    ];
+    return {
+      taskResults: newResults,
+    };
+  }),
+  always: [
+    {
+      guard: ({ context }) => (context.currentTaskIndex + 1) % 3 === 0, // every 3 tasks
+      actions: assign(({ context }) => {
+        // Change character in context and call fhChangeCharacter side-effect
+        const currentCharIndex = Object.values(CHARACTER_mapping).indexOf(context.characterName);
+        const newCharacterIndex = (currentCharIndex + 1) % Object.keys(CHARACTER_mapping).length;
+        const newCharacterName = CHARACTER_mapping[newCharacterIndex];
+        fhChangeCharacter(newCharacterName);
+        return { characterName: newCharacterName };
+      }),
+      target: "listening",
+    },
+    {
+      actions: raise(() => ({ type: "NEXT_TASK" })), // raise NEXT_TASK event to move forward
+      target: "listening",
+    },
+  ],
+},
+
+
+  
+
+    SpeakSimpleNegative: {
+      invoke: {
+        src: "fhSpeak",
+        input: () => ({ text: "Try again, you can do it!" }),
+        onDone: "listening",
+      },
+    },
+
+
+    SpeakLLMFeedbackNegative: {
+      invoke: {
+        src: "fhSpeak",
+        input: ({ context }) => ({
+
+      text: context.llmResponse ?? "Sorry, I don't have feedback right now."
+    }),
+       // input: ({ context }) => ({ text: context.llmResponse }),
+        onDone: {
+          //actions: raise(() => ({ type: "NEXT_TASK" })), //I SHOULD HAVE THIS ONLY FOR THE POSITIVE FEEDBACK 
+          target: "listening",
+        },
+      },
+    },
+    
+
+
+// SendFeedbackPositive: {
+//   invoke: {
+//     src: "getFeedback",
+//     input: ({ context }) => {
+//       const currentTask = context.drawingTasks?.[context.currentTaskIndex];
+//       if (!context.image64) {
+//         console.error("No image captured!"); 
+//         return {
+//           model: "llava:34b",
+//           image: "",
+//           isCorrect: context.isCorrect ?? false,             
+//           taskDescription: currentTask?.prompt || "No desc",
+//         };  
+//       }
+//       console.log("Base64 image:", context.image64.substring(0, 30) + "..."); 
+      
+//       return {
+//         model: "llava:34b",
+//         image: context.image64,
+//         isCorrect: context.isCorrect ?? false,               
+//         taskDescription: currentTask?.english || "No DESC",
+//       };
+//     },
+//     onDone: {
+//       target: "SpeakLLMFeedbackPositive",//"SpeakLLMFeedback",
+//       actions: assign(({ event, context }) => {
+//         const currentTask = context.drawingTasks?.[context.currentTaskIndex];
+//         const llmResponse = event.output?.response;
+//         console.log("LLM's description response:", llmResponse);
+
+//         fetch("http://127.0.0.1:5000/log", {
+//           method: "POST",
+//           headers: { "Content-Type": "application/json" },
+//           body: JSON.stringify({
+//             session: context.session_id,
+//             prompt: currentTask?.prompt || "No prompt",
+//             image64: context.image64,
+//             source: "description_flow",
+//             llm_response: llmResponse,
+//             timestamp: new Date().toISOString(),
+//           }),
+//         });
+
+//         return {
+//           messages: [
+//             {
+//               role: "assistant",
+//               content: llmResponse,
+//             },
+//           ],
+//           llmResponse: llmResponse,
+//         };
+//       }),
+//     },
+//   },
+// },
+
+
+
+
+
 //     SendLLMFeedback: {
 //     invoke: {
 //     src: "getLLMFeedback",
@@ -1364,39 +1548,12 @@ SendFeedbackNegative: {
 
    
 
-    SpeakLLMFeedbackPositive: {
-      invoke: {
-        src: "fhSpeak",
-        input: ({ context }) => ({
-
-      text: context.llmResponse ?? "Sorry, I don't have feedback right now."
-    }),
-       // input: ({ context }) => ({ text: context.llmResponse }),
-        onDone: {
-          actions: raise(() => ({ type: "NEXT_TASK" })), //I SHOULD HAVE THIS ONLY FOR THE POSITIVE FEEDBACK 
-          target: "listening",
-        },
-      },
-    },
-
+   
    
   
 
 
- SpeakLLMFeedbackNegative: {
-      invoke: {
-        src: "fhSpeak",
-        input: ({ context }) => ({
-
-      text: context.llmResponse ?? "Sorry, I don't have feedback right now."
-    }),
-       // input: ({ context }) => ({ text: context.llmResponse }),
-        onDone: {
-          //actions: raise(() => ({ type: "NEXT_TASK" })), //I SHOULD HAVE THIS ONLY FOR THE POSITIVE FEEDBACK 
-          target: "listening",
-        },
-      },
-    },
+ 
 
    
   },
