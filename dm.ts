@@ -37,6 +37,11 @@ interface Frame {
 // }
 
 
+//RANDOM DRAWING TASKS SO WE CAN USE HALF FOR LLM AN HALF FOR BUTTON EVALUATION 
+
+
+
+
 
 // function createSessionId(length = 8) {
 //   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -96,6 +101,8 @@ interface DrawingTask {
   english: string;
   labels: LabelMap;
   voice: string;
+  feedbackType?: "llm" | "simple"; //MAYBE THIS IS THE WAY TO SPLIT THE FEEDBACK 
+
 }
 
 
@@ -192,7 +199,8 @@ const drawingTasks: DrawingTask[] = [
     prompt: "ένα μήλο πάνω στο κουτί.", 
     english: "an apple on the box",
     labels: { obj1: "apple", obj2: "box", relation: "on" },
-    voice: "el-GR-AthinaNeural" // Greek voice
+    voice: "el-GR-AthinaNeural", // Greek voice
+
   },
   { 
     prompt: "ένα μήλο μέσα στο κουτί.", 
@@ -238,10 +246,71 @@ const drawingTasks: DrawingTask[] = [
   }
 ];
 
+async function fhChangeCharacter(character: string) {
+  const myHeaders = new Headers();
+  myHeaders.append("accept", "application/json");
+  const encText = encodeURIComponent(character);
+  return fetch(`http://${FURHATURI}/furhat/face?mask=adult&character=${encText}`, {  
+    method: "POST",
+    headers: myHeaders,
+    body: "",
+  });
+}
+
+
+
+const CHARACTER_mapping: Record<number, string> = {
+  0: "Isabel",
+  1: "Titan",
+};
+
+
+
+const groups: [number, number][] = [
+  [0, 1],
+  [1, 1],
+  [1, 0],
+  [0, 0],
+];
+
+const pointer = 2; // I WILL UPDATE THIS EVERY TIME I change user 
+
+const [character, feedback] = groups[pointer];
+
+const characterName = CHARACTER_mapping[character];
+
+await fhChangeCharacter(characterName); // ΜΑΥΒΕ ΤHIS ONE SHOULD BE INSIDE THE CREATE MACHINE?
 
 
 
 
+
+function assignGroupedFeedback(tasks: DrawingTask[], useLLM: boolean): DrawingTask[] {
+  const shuffled = [...tasks].sort(() => Math.random() - 0.5);
+  const splitIndex = Math.floor(tasks.length / 2);
+
+  return shuffled.map((task, index) => ({
+    ...task,
+    feedbackType: (useLLM && index < splitIndex) || (!useLLM && index >= splitIndex) ? "llm" : "simple",
+  }));
+}
+
+const drawingTasksWithFeedback = assignGroupedFeedback(drawingTasks, feedback === 1);
+
+
+function assignRandomFeedbackTypes(tasks: DrawingTask[]): DrawingTask[] {
+  const indices = Array.from({ length: tasks.length }, (_, i) => i);
+  const shuffled = indices.sort(() => Math.random() - 0.5);
+  const llmIndices = shuffled.slice(0, 3);
+
+  return tasks.map((task, index) => ({
+    ...task,
+    feedbackType: llmIndices.includes(index) ? "llm" : "simple",
+  }));
+}
+
+
+const randomizedTasks = assignRandomFeedbackTypes(drawingTasks);
 
 
 
@@ -809,7 +878,6 @@ getFeedback: fromPromise<any, { model: string; image?: string; isCorrect: boolea
       ? "The drawing has been marked as correct. Please explain in simple English why it looks correct. BE BRIEF"
       : "The drawing has been marked as incorrect. Please explain in simple English what is wrong or missing. BE BRIEF";
 
-    // 👇 Embed the original task clearly as context, but keep it wrapped in English
     const prompt = `${basePrompt}\n\nThe original drawing instruction was:\n"${input.taskDescription}"\n\nBe concise and clear.`;
 
     console.log("Prompt to LLM:", prompt);
@@ -818,8 +886,8 @@ getFeedback: fromPromise<any, { model: string; image?: string; isCorrect: boolea
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: input.model ?? "llava:13b", // 🔁 optionally fallback to a faster model
-        temperature: 0.8,                  // 🔁 4 is *way too high*, leads to hallucination
+        model: "llama:34b",  
+        temperature: 0.8,                  
         images: input.image ? [input.image] : [],
         prompt: prompt,
       }),
@@ -927,7 +995,7 @@ getFeedback: fromPromise<any, { model: string; image?: string; isCorrect: boolea
         console.log(`Sending image to ${input.model} for description...`);
        // const currentTask = drawingTasks[input.currentTaskIndex];
         //const { obj1, obj2, relation, obj3 } = currentTask.labels;
-        const prompt = `The user will draw something, and you must determine what it resembles. Respond with a sentence starting with 'I think that the drawing is a object1 <relation> object2}.} Keep it really simple, like you're talking to a 5-year-old. BE BRIEF.`;
+        const prompt = `The user will draw something, and you must determine what it resembles. Respond with a sentence starting with 'I think that the drawing is an object1 relation object2}.} Keep it really simple, like you're talking to a 5-year-old. BE BRIEF.`;
 
         console.log(`Sending get description request with prompt: "${prompt}"`);
         const response = await fetch("http://localhost:11434/api/generate", {
@@ -1014,14 +1082,19 @@ getFeedback: fromPromise<any, { model: string; image?: string; isCorrect: boolea
     description: "",
     isCorrect: false,
     currentPrompt: "",
-    drawingTasks: drawingTasks,
+    //drawingTasks: drawingTasks,
+    drawingTasks: assignGroupedFeedback(drawingTasks, feedback === 1),
+    characterName: CHARACTER_mapping[groups[pointer][0]],
+    llmResponse: "",
+    feedbackVariant: groups[pointer][1],  //1 WOULD BE THE SECOND CASE
+    taskResults: [],
     
-    // moreStuff: {thingOne: 1, thingTwo: 2}
   }),
   id: "DM",
   initial: "Prepare",
   states: {
     Prepare: {
+
       entry: [{ type: "speechstate_prepare" }],
       
       on: { ASRTTS_READY: "WaitToStart" },
