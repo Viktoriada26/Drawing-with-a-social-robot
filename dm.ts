@@ -4,6 +4,7 @@ import { createBrowserInspector } from "@statelyai/inspect";
 import { KEY } from "./azure";
 
 
+const FURHATURI = "localhost:8181/http://192.168.1.11:54321"    //"192.168.1.11:54321"; //"127.0.0.1:54321"; 
 
 
 
@@ -93,6 +94,7 @@ interface LabelMap {
   obj2? : string; 
   obj3? : string; 
   relation? : string;
+  
 
 }
 
@@ -102,7 +104,7 @@ interface DrawingTask {
   labels: LabelMap;
   voice: string;
   feedbackType?: "llm" | "simple"; //MAYBE THIS IS THE WAY TO SPLIT THE FEEDBACK 
-
+  character?: number;
 }
 
 
@@ -201,20 +203,23 @@ const drawingTasks: DrawingTask[] = [
     labels: { obj1: "apple", obj2: "box", relation: "on" },
     voice: "el-GR-AthinaNeural", // Greek voice
 
+
   },
   { 
     prompt: "ένα μήλο μέσα στο κουτί.", 
     english: "an apple in the box",
     labels: { obj1: "apple", obj2: "box", relation: "in" },
     //labels: { apple: true, box: true, in: true },
-    voice: "el-GR-AthinaNeural" 
+    voice: "el-GR-AthinaNeural",
+
   },
   { 
     prompt: "ένα μήλο μπροστά από το κουτί.", 
     english: "an apple in front of the box",
     labels: { obj1: "apple", obj2: "box", relation: "in front of" },
     //labels: { apple: true, box: true, inFrontOf: true },
-    voice: "el-GR-AthinaNeural" 
+    voice: "el-GR-AthinaNeural",
+ 
   },
   // { 
   //   prompt: "ένα μήλο ανάμεσα στο κουτί και το δέντρο.", 
@@ -228,35 +233,25 @@ const drawingTasks: DrawingTask[] = [
     english: "an apple next to the box",
     labels: { obj1: "apple", obj2: "box", relation: "next to" },
    // labels: { apple: true, box: true, nextTo: true },
-    voice: "el-GR-AthinaNeural"
+    voice: "el-GR-AthinaNeural",
+
   },
   { 
     prompt: "ένα μήλο πίσω από το κουτί.", 
     english: "an apple behind the box",
     labels: { obj1: "apple", obj2: "box", relation: "behind" },
     //labels: { apple: true, box: true, behind: true },
-    voice: "el-GR-AthinaNeural" 
+    voice: "el-GR-AthinaNeural",
   },
   { 
     prompt: "ένα μήλο κάτω από το κουτί.", 
     english: "an apple under the box",
     labels: { obj1: "apple", obj2: "box", relation: "under" },
     //labels: { apple: true, box: true, under: true },
-    voice: "el-GR-AthinaNeural" 
+    voice: "el-GR-AthinaNeural",
+
   }
 ];
-
-async function fhChangeCharacter(character: string) {
-  const myHeaders = new Headers();
-  myHeaders.append("accept", "application/json");
-  const encText = encodeURIComponent(character);
-  return fetch(`http://${FURHATURI}/furhat/face?mask=adult&character=${encText}`, {  
-    method: "POST",
-    headers: myHeaders,
-    body: "",
-  });
-}
-
 
 
 const CHARACTER_mapping: Record<number, string> = {
@@ -265,37 +260,183 @@ const CHARACTER_mapping: Record<number, string> = {
 };
 
 
-
 const groups: [number, number][] = [
-  [0, 1],
-  [1, 1],
-  [1, 0],
-  [0, 0],
+  [0, 1], // ISABEL LL, Titan simple
+  [1, 1], // Titan llm, Isabel simple
+  [1, 0], // Titan simple, Isabel llm
+  [0, 0], // Isabel simple, Titan llm
 ];
 
-const pointer = 2; // I WILL UPDATE THIS EVERY TIME I change user 
+const pointer = 2; // CHANGE THE POINTER AFTER EVERY USER 
 
-const [character, feedback] = groups[pointer];
+const [llmCharacter, llmFlag] = groups[pointer];
+const llmFeedbackType = llmFlag === 1 ? "llm" : "simple";
+const simpleCharacter = llmCharacter === 0 ? 1 : 0;
+const simpleFeedbackType = llmFlag === 1 ? "simple" : "llm";
 
-const characterName = CHARACTER_mapping[character];
-
-await fhChangeCharacter(characterName); // ΜΑΥΒΕ ΤHIS ONE SHOULD BE INSIDE THE CREATE MACHINE?
-
-
-
-
-
-function assignGroupedFeedback(tasks: DrawingTask[], useLLM: boolean): DrawingTask[] {
+// ASSIGN TASKS
+function assignFeedbackPerCharacter(
+  tasks: DrawingTask[],
+  llmCharacter: number,
+  llmFeedbackType: "llm" | "simple",
+  simpleCharacter: number,
+  simpleFeedbackType: "llm" | "simple"
+): DrawingTask[] {
   const shuffled = [...tasks].sort(() => Math.random() - 0.5);
   const splitIndex = Math.floor(tasks.length / 2);
 
   return shuffled.map((task, index) => ({
     ...task,
-    feedbackType: (useLLM && index < splitIndex) || (!useLLM && index >= splitIndex) ? "llm" : "simple",
+    character: index < splitIndex ? llmCharacter : simpleCharacter,
+    feedbackType: index < splitIndex ? llmFeedbackType : simpleFeedbackType,
   }));
 }
 
-const drawingTasksWithFeedback = assignGroupedFeedback(drawingTasks, feedback === 1);
+const drawingTasksWithFeedback = assignFeedbackPerCharacter(
+  drawingTasks,
+  llmCharacter,
+  llmFeedbackType,
+  simpleCharacter,
+  simpleFeedbackType
+);
+
+drawingTasksWithFeedback.forEach((task, i) => {
+  console.log(
+    `Task ${i + 1}: ${task.prompt}, Character: ${CHARACTER_mapping[task.character ?? 0]}, Feedback: ${task.feedbackType}`
+  );
+});
+
+
+/* 
+const CHARACTER_mapping: Record<number, string> = {
+  0: "Isabel",
+  1: "Titan",
+};
+
+
+
+const groups: [number, number][] = [
+  [0, 1], // ISABEL LLM, TITAN SIMPLE 
+  [1, 1], // tITAN LLM. ISABEL SIMPLE 
+  [1, 0], // tTITAN SIMPLE ISABEL LLM
+  [0, 0], // iSABEL SIMPLE, TITAN LLM 
+];
+
+
+
+
+const pointer = 3; // I WILL UPDATE THIS EVERY TIME I change user 
+
+
+const [llmCharacter, llmFlag] = groups[pointer];
+//const simpleCharacter = llmCharacter === 0 ? 1 : 0;
+
+//const [character, feedback] = groups[pointer];
+
+//const characterName = CHARACTER_mapping[character];
+
+//await fhChangeCharacter(characterName); // ΜΑΥΒΕ ΤHIS ONE SHOULD BE INSIDE THE CREATE MACHINE?
+const feedbackType: "llm" | "simple" = llmFlag === 1 ? "llm" : "simple";
+
+
+function assignFeedbackPerCharacter(
+  tasks: DrawingTask[],
+  llmCharacter: number,
+  llmFeedbackType: "llm" | "simple"
+): DrawingTask[] {
+  const simpleCharacter = llmCharacter === 0 ? 1 : 0;
+  const simpleFeedbackType = llmFeedbackType === "llm" ? "simple" : "llm";
+
+  const shuffled = [...tasks].sort(() => Math.random() - 0.5);
+  const splitIndex = Math.floor(tasks.length / 2);
+
+  return shuffled.map((task, index): DrawingTask => ({
+    ...task,
+    character: index < splitIndex ? llmCharacter : simpleCharacter,
+    feedbackType: index < splitIndex ? llmFeedbackType : simpleFeedbackType,
+  }));
+}
+
+const drawingTasksWithFeedback = assignFeedbackPerCharacter(
+  drawingTasks,
+  llmCharacter,
+  feedbackType
+);
+
+ */
+
+// function assignFeedbackPerCharacter1(
+//   tasks: DrawingTask[],
+//   llmCharacter: number,
+//   llmFeedbackType: "llm" | "simple"
+// ): DrawingTask[] {
+//   const simpleCharacter = llmCharacter === 0 ? 1 : 0;
+//   const simpleFeedbackType = llmFeedbackType === "llm" ? "simple" : "llm";
+
+//   const shuffled = [...tasks].sort(() => Math.random() - 0.5);
+//   const splitIndex = Math.floor(tasks.length / 2);
+
+//   return shuffled.map((task, index): DrawingTask => ({
+//     ...task,
+//     character: index < splitIndex ? llmCharacter : simpleCharacter,
+//     feedbackType: index < splitIndex ? llmFeedbackType : simpleFeedbackType,
+//   }));
+// }
+
+// const feedbackType: "llm" | "simple" = llmFlag === 1 ? "llm" : "simple";
+// const drawingTasksWithFeedback = assignFeedbackPerCharacter(drawingTasks, llmCharacter, feedbackType);
+
+
+
+function assignGroupedFeedback(tasks: DrawingTask[], group: [number, number]): DrawingTask[] {
+  const shuffled = [...tasks].sort(() => Math.random() - 0.5);
+  const splitIndex = Math.floor(shuffled.length / 2);
+
+  const [characterA, characterB] = group;
+
+  // Assign first half to characterA, second half to characterB
+  return shuffled.map((task, index): DrawingTask => {
+    const character = index < splitIndex ? characterA : characterB;
+    const feedbackType = (index < splitIndex ? group[0] : group[1]) === 1 ? "llm" : "simple";
+    return {
+      ...task,
+      character,
+      feedbackType,
+    };
+  });
+}
+
+
+
+//const drawingTasksWithFeedback = assignGroupedFeedback(drawingTasks, group);
+
+
+
+function assignGroupedFeedback1(tasks: DrawingTask[], useLLM: boolean): DrawingTask[] {
+  const shuffled = [...tasks].sort(() => Math.random() - 0.5);
+  const splitIndex = Math.floor(tasks.length / 2);
+
+  return shuffled.map((task, index): DrawingTask => ({
+    ...task,
+    feedbackType: (useLLM && index < splitIndex) || (!useLLM && index >= splitIndex)
+      ? "llm"
+      : "simple",
+  }));
+}
+
+
+
+// function assignGroupedFeedback(tasks: DrawingTask[], useLLM: boolean): DrawingTask[] {
+//   const shuffled = [...tasks].sort(() => Math.random() - 0.5);
+//   const splitIndex = Math.floor(tasks.length / 2);
+
+//   return shuffled.map((task, index) => ({
+//     ...task,
+//     feedbackType: (useLLM && index < splitIndex) || (!useLLM && index >= splitIndex) ? "llm" : "simple",
+//   }));
+// }
+
+//const drawingTasksWithFeedback = assignGroupedFeedback(drawingTasks, feedback === 1);
 
 
 function assignRandomFeedbackTypes(tasks: DrawingTask[]): DrawingTask[] {
@@ -348,19 +489,22 @@ interface MyDMContext extends DMContext {
   image64?: string;
   detectedObjects: Record<string, boolean>; 
   description: string;
-  drawingTasks: { // 
-    prompt: string; 
-    english: string;
-    labels: LabelMap;
-    //labels: Record<string, boolean>; 
-  }[];
+   drawingTasks: DrawingTask[];
+  // drawingTasks: { // 
+  //   prompt: string; 
+  //   english: string;
+  //   labels: LabelMap;
+  //   feedbackType: string;
+  //   //labels: Record<string, boolean>; 
+  // }[];
   isCorrect: boolean;
   currentPrompt: string;
   session_id:string;
   llmResponse?: string;  
   characterName: string;
+  
   feedback?: number;  // THIS IS IMPORTANT
-
+   // drawingTasksWithFeedback? : string;
   //currentTask?: string;
 
 
@@ -376,7 +520,8 @@ interface DMContext {
   prompt?: string;
   currentTaskIndex: number;
   detectedObjects: Record<string, boolean>; 
-  drawingTasks: Array<{ prompt: string,  labels: LabelMap/* labels: Record<string, boolean >*/ }>;
+  drawingTasks: DrawingTask[];
+ // drawingTasks: Array<{ prompt: string,  labels: LabelMap/* labels: Record<string, boolean >*/ }>;
   isCorrect: boolean;
   currentPrompt: string;
   session_id:string;
@@ -457,13 +602,24 @@ async function fhAttend() {
   });
 }
 
-const FURHATURI = "localhost:8181/http://192.168.1.11:54321"    //"192.168.1.11:54321"; //"127.0.0.1:54321"; 
+//const FURHATURI = "localhost:8181/http://192.168.1.11:54321"    //"192.168.1.11:54321"; //"127.0.0.1:54321"; 
 
   async function fhSay(text: string) {
   const myHeaders = new Headers();
   myHeaders.append("accept", "application/json");
   const encText = encodeURIComponent(text);
   return fetch(`http://${FURHATURI}/furhat/say?text=${encText}&blocking=true`, {
+    method: "POST",
+    headers: myHeaders,
+    body: "",
+  });
+}
+
+async function fhChangeCharacter(character: string) {
+  const myHeaders = new Headers();
+  myHeaders.append("accept", "application/json");
+  const encText = encodeURIComponent(character);
+  return fetch(`http://${FURHATURI}/furhat/face?mask=adult&character=${encText}`, {  
     method: "POST",
     headers: myHeaders,
     body: "",
@@ -605,7 +761,7 @@ const dmMachine = setup({
   }),
 
   fhSmile:  fromPromise<any,any>(async () => {
-      return fhGesture('Smile')
+      return fhGesture('BigSmile')
     }),
 
      fhSad:  fromPromise<any,any>(async () => {
@@ -675,20 +831,27 @@ const dmMachine = setup({
 getBinaryClassification: fromPromise<any, { model: string; image: string; currentTaskIndex: number }>(
   ({ input }) => {
     const currentTask = drawingTasks[input.currentTaskIndex];
-    const { obj1, obj2, relation, obj3 } = currentTask.labels;
+    const { obj1, obj2, relation} = currentTask.labels;
 
-    const prompt = `You will be shown a drawing. Evaluate if it correctly matches the given description. 
+    const prompt = `
+    You are a helpful assistant that looks at drawings and decides whether they match a given description. 
+    You will receive a short description and an image. 
+    Your job is to answer four yes/no questions about whether the image contains the right objects and relationships.
+    
 
 Description: "${currentTask.english}"
 Respond ONLY with a raw JSON object and nothing else.
 Do NOT include any commentary, explanation, or text after the JSON.
 Do NOT use code blocks or wrap the JSON in triple backticks.
 
+DO NOT guess. Only answer "true" if the object or relation is CLEARLY VISIBLE in the image. 
+If you're unsure or the object is missing, answer "false".
+
 Answer the following questions:
 1. Is the following sentence correctly describing the image: "${currentTask.english}"?
 2. Is this correct: the picture contains "${obj1}"?
 3. Is this correct: the picture contains "${obj2}"?
-4. Is this correct: the picture contains a relation "${relation}" between "${obj1}" and "${obj2}"${obj3 ? ` and "${obj3}"` : ""}?
+4. Is this correct: the picture contains a relation "${relation}" between "${obj1}" and "${obj2}"}?
 
 Please reply with a JSON object:
 {
@@ -696,6 +859,49 @@ Please reply with a JSON object:
   "obj1": true/false,
   "obj2": true/false,
   "relation": true/false
+}
+
+Example 1:
+Description: "An apple in a box"
+
+Drawing: (a picture showing an apple inside a box)
+
+Response:
+{
+  "sentence": true,
+  "obj1": true,
+  "obj2": true,
+  "relation": true
+}
+
+
+
+Example 2:
+Description: "An apple next to an box"
+
+Drawing: (a picture showing an apple on top of a box)
+
+Response:
+{
+  "sentence": false,
+  "obj1": true,
+  "obj2": true,
+  "relation": false
+}
+
+
+
+Example 2:
+Description: "An apple next to an box"
+
+Drawing: (a picture showing an apple on top of a box)
+
+Response:
+{
+  "sentence": false,
+  "obj1": true,
+  "obj2": true,
+  "relation": false
 }
 
 
@@ -879,8 +1085,62 @@ createEventsFromStream:  fromCallback(
     ),
 
 
-
 getFeedback: fromPromise<any, { model: string; image?: string; isCorrect: boolean; taskDescription: string }>(
+  async ({ input }) => {
+    const fewShotPrompt = `
+You are a helpful assistant who provides natural, concise feedback on visual tasks based on short drawing instructions. 
+For each drawing task, you have seen the image. 
+Respond as if speaking naturally to the person who made the drawing — either encouraging them when it's correct or pointing out what went wrong if it's incorrect.
+
+Example 1:
+Instruction: Draw an apple in front of the box.
+Result: The drawing is correct.
+Feedback: The apple is clearly in front of the box, positioned lower and closer to the viewer — well done.
+
+Example 2:
+Instruction: Draw an apple under the box.
+Result: The drawing is incorrect.
+Feedback: The apple is placed next to the box instead of underneath it.
+
+Now evaluate the following:
+
+Instruction: ${input.taskDescription}
+Result: The drawing is ${input.isCorrect ? "correct" : "incorrect"}.
+Feedback:`;
+
+    console.log("Prompt to LLM:", fewShotPrompt);
+
+    const response = await fetch("http://localhost:11434/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "llava:34b",
+        temperature: 0.8,
+        images: input.image ? [input.image] : [],
+        prompt: fewShotPrompt,
+      }),
+    });
+
+    const text = await response.text();
+    console.log("Raw NDJSON Response:", text);
+
+    const lines = text.trim().split("\n").filter(line => line.trim() !== "");
+    const data = lines.map(line => JSON.parse(line));
+    const fullResponse = data.map(obj => obj.response).join("");
+
+    console.log("Full Description:", fullResponse);
+
+    return {
+      model: data[0].model,
+      response: fullResponse,
+      done: data[data.length - 1].done
+    };
+  }
+),
+
+
+
+getFeedbackIMPORTANT: fromPromise<any, { model: string; image?: string; isCorrect: boolean; taskDescription: string }>(
   async ({ input }) => {
     const basePrompt = input.isCorrect
       ? "The drawing has been marked as correct. Please explain in simple English why it looks correct. BE BRIEF"
@@ -894,7 +1154,7 @@ getFeedback: fromPromise<any, { model: string; image?: string; isCorrect: boolea
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama:34b",  
+        model: "llava:34b",  
         temperature: 0.8,                  
         images: input.image ? [input.image] : [],
         prompt: prompt,
@@ -1003,7 +1263,33 @@ getFeedback: fromPromise<any, { model: string; image?: string; isCorrect: boolea
         console.log(`Sending image to ${input.model} for description...`);
        // const currentTask = drawingTasks[input.currentTaskIndex];
         //const { obj1, obj2, relation, obj3 } = currentTask.labels;
-        const prompt = `The user will draw something, and you must determine what it resembles. Respond with a sentence starting with 'I think that the drawing is an object1 relation object2}.} Keep it really simple, like you're talking to a 5-year-old. BE BRIEF.`;
+
+       // const prompt = `The user will draw something, and you must determine what it resembles. Respond with a sentence starting with 'I think that the drawing is an object1 relation object2}.} Keep it really simple, like you're talking to a 5-year-old. BE BRIEF.`;
+
+
+      const prompt = `
+      You are a helpful assistant that looks at drawings and describes what they resemble. Your job is to describe what you actually see — nothing more.
+      Use simple words and describe visible objects using prepositions like "in", "on", "next to", or "under".
+      Start your sentence with "I think that the drawing is..." and keep it very short, like you're talking to a 5-year-old.
+      Be honest. Only describe what you can clearly see
+
+    
+      Example 1:
+      Drawing: (a picture of an apple inside a box)
+      Response: I think that the drawing is an apple in a box.
+
+      Example 2:
+      Drawing: (a picture of a house next to a tree)
+      Response: I think that the drawing is a house next to a tree.
+
+      Example 3:
+      Drawing: (a picture of an apple on top of a box)
+      Response: I think that the drawing is an apple on top of a box.
+
+      Now, here is the new drawing. Please describe it:
+      `;
+
+
 
         console.log(`Sending get description request with prompt: "${prompt}"`);
         const response = await fetch("http://localhost:11434/api/generate", {
@@ -1091,22 +1377,63 @@ getFeedback: fromPromise<any, { model: string; image?: string; isCorrect: boolea
     isCorrect: false,
     currentPrompt: "",
     //drawingTasks: drawingTasks,
-    drawingTasks: assignGroupedFeedback(drawingTasks, feedback === 1),
-    characterName: CHARACTER_mapping[groups[pointer][0]],
+    drawingTasks: drawingTasksWithFeedback,//assignGroupedFeedback(drawingTasks, feedback === 1), // drawingTasksWithFeedback
+    characterName: CHARACTER_mapping[llmCharacter],
+   // characterName: CHARACTER_mapping[groups[pointer][0]],
     llmResponse: "",
-    feedback: groups[pointer][1],  //1 WOULD BE THE SECOND CASE
+    feedback: groups[pointer][0],  //1 WOULD BE THE SECOND CASE
     taskResults: [],
     
   }),
   id: "DM",
   initial: "Prepare",
   states: {
-    Prepare: {
 
-      entry: [{ type: "speechstate_prepare" }],
+
+    Prepare: {
+  entry: [
+    assign(({ context }) => {
+      const firstTask = context.drawingTasks[0];
+
+      const characterNum = firstTask.character ?? 0;
+      const characterName = CHARACTER_mapping[characterNum];
+      const feedbackNum = firstTask.feedbackType === "llm" ? 1 : 0;
+
+      // Switch character right away
+      fhChangeCharacter(characterName);
+
+      return {
+        ...context,
+        currentTaskIndex: 0,
+        feedback: feedbackNum,
+        currentPrompt: firstTask.prompt,
+        characterName,
+      };
+    }),
+    { type: "speechstate_prepare" }
+  ],
+  on: { ASRTTS_READY: "WaitToStart" },
+},
+
+
+/* 
+    Prepare: {
+  entry: [
+    { type: "speechstate_prepare" },
+    ({ context }) => {
+
+      fhChangeCharacter(context.characterName); //TAKE THE CHARACTER
+    }
+  ],
+  on: { ASRTTS_READY: "WaitToStart" },
+}, */
+
+    // Prepare: {
+
+    //   entry: [{ type: "speechstate_prepare" }],
       
-      on: { ASRTTS_READY: "WaitToStart" },
-    },
+    //   on: { ASRTTS_READY: "WaitToStart" },
+    // },
 
 
 
@@ -1220,19 +1547,47 @@ getFeedback: fromPromise<any, { model: string; image?: string; isCorrect: boolea
          // after:{ 100: "GetDescription" }, //  DELAY BEFORE TRANSITION
         },
 
+
+
+
  SendFeedbackPositiveLLMPILOT: {
       always: [
         {
           guard: ({ context }) => context.feedback === 1, // LLM 
-          target: "SendFeedbackPositiveLLM",
+          target: "ChangeToEnglishVoicePositiveLLM",//"SendFeedbackPositiveLLM",
         },
         {
           guard:  ({ context }) => context.feedback === 0, // PILOT
-          target: "SpeakSimplePositive",
+          target: "ChangeToEnglishVoicePositivesimple",//"SpeakSimplePositive",
         },
       ],
     },
 
+
+  ChangeToEnglishVoicePositiveLLM: {
+        invoke: {
+          src: "fhChangeVoice",
+          input: () => ({
+            voice: "Ruth-Neural",//"Tracy22k_HQ",
+            character: "default" 
+          }),
+          onDone: { target: "SendFeedbackPositiveLLM" },
+        }
+      }, 
+
+
+
+  ChangeToEnglishVoicePositivesimple: {
+        invoke: {
+          src: "fhChangeVoice",
+          input: () => ({
+            voice: "Ruth-Neural",//"Tracy22k_HQ",
+            character: "default" 
+          }),
+          onDone: { target: "SpeakSimplePositive" },
+        }
+      }, 
+      
 
 SendFeedbackPositiveLLM: {
   invoke: {
@@ -1271,8 +1626,9 @@ SendFeedbackPositiveLLM: {
             session: context.session_id,
             prompt: currentTask?.prompt || "No prompt",
             image64: context.image64,
-            source: "description_flow",
-            llm_response: llmResponse,
+            evaluation: "correct",
+            source: "feedback_flow",
+            llmFeedbackexplanation: llmResponse,
             timestamp: new Date().toISOString(),
           }),
         });
@@ -1296,7 +1652,7 @@ SendFeedbackPositiveLLM: {
     SpeakSimplePositive: {
       invoke: {
         src: "fhSpeak",
-        input: () => ({ text: "Good job!" }),
+        input: () => ({ text: "Bravo, the drawing is correct!" }),
         onDone: "AfterFeedbackPositive",
       },
     },
@@ -1309,10 +1665,11 @@ SendFeedbackPositiveLLM: {
       text: context.llmResponse ?? "Sorry, I don't have feedback right now."
     }),
        // input: ({ context }) => ({ text: context.llmResponse }),
-        onDone: {
-          actions: raise(() => ({ type: "NEXT_TASK" })), //I SHOULD HAVE THIS ONLY FOR THE POSITIVE FEEDBACK 
-          target: "listening",
-        },
+        onDone: "AfterFeedbackPositive",
+        //{
+          //actions: raise(() => ({ type: "NEXT_TASK" })), //I SHOULD HAVE THIS ONLY FOR THE POSITIVE FEEDBACK !!THIS IS WHAT i CHANGED
+          //target: "AfterFeedbackPositive",//"listening",
+        //},
       },
     },
 
@@ -1323,14 +1680,39 @@ SendFeedbackPositiveLLM: {
       always: [
         {
           guard: ({context}) => context.feedback === 1,
-          target: "SendFeedbackNegativeLLM",
+          target:  "ChangeToEnglishVoiceNegativeLLM",//"SendFeedbackNegativeLLM",
         },
         {
           guard: ({context}) => context.feedback === 0,
-          target: "SpeakSimpleNegative",
+          target: "ChangeToEnglishVoiceNegativesimple", //"SpeakSimpleNegative",
         },
       ],
     },
+
+
+ ChangeToEnglishVoiceNegativesimple: {
+        invoke: {
+          src: "fhChangeVoice",
+          input: () => ({
+            voice: "Ruth-Neural",//"Tracy22k_HQ",
+            character: "default" 
+          }),
+          onDone: { target: "SpeakSimpleNegative" },
+        }
+      }, 
+
+
+
+     ChangeToEnglishVoiceNegativeLLM: {
+        invoke: {
+          src: "fhChangeVoice",
+          input: () => ({
+            voice: "Ruth-Neural",//"Tracy22k_HQ",
+            character: "default" 
+          }),
+          onDone: { target: "SendFeedbackNegativeLLM" },
+        }
+      }, 
 
 
     
@@ -1372,8 +1754,9 @@ SendFeedbackNegativeLLM: {
             session: context.session_id,
             prompt: currentTask?.prompt || "No prompt",
             image64: context.image64,
-            source: "description_flow",
-            llm_response: llmResponse,
+            evaluation: "wrong",
+            source: "feedback_flow",
+            llmnegativefeedback: llmResponse,
             timestamp: new Date().toISOString(),
           }),
         });
@@ -1393,9 +1776,65 @@ SendFeedbackNegativeLLM: {
 },
 
 
-
-
 AfterFeedbackPositive: {
+  entry: [
+    assign(({ context }) => {
+      const newResults = [
+        ...(context.taskResults || []),
+        { taskIndex: context.currentTaskIndex, correct: context.isCorrect },
+      ];
+      return { taskResults: newResults };
+    }),
+    raise(() => ({ type: "NEXT_TASK" })),
+  ],
+  on: {
+    NEXT_TASK: "listening", 
+  },
+},
+
+
+
+
+
+
+AfterFeedbackPositive100: {
+  entry: [
+    assign(({ context }) => {
+      // Save result
+      const newResults = [
+        ...(context.taskResults || []),
+        { taskIndex: context.currentTaskIndex, correct: context.isCorrect },
+      ];
+      return { taskResults: newResults };
+    }),
+
+    ({ context }) => {
+      // Every 3 tasks, change character
+      if ((context.currentTaskIndex + 1) % 3 === 0) {
+        const currentIndex = Object.values(CHARACTER_mapping).indexOf(context.characterName);
+        const newIndex = (currentIndex + 1) % Object.keys(CHARACTER_mapping).length;
+        const newCharacterName = CHARACTER_mapping[newIndex];
+        fhChangeCharacter(newCharacterName);
+        console.log("Character changed to", newCharacterName);
+      }
+    },
+    raise(() => ({ type: "NEXT_TASK" })),
+   // raise("NEXT_TASK"),
+  ],
+
+  on: {
+    NEXT_TASK: "listening",
+  },
+},
+
+
+
+
+
+
+
+
+AfterFeedbackPositive1: {
   entry: assign(({ context }) => {
     // Save the result for the current task
     const newResults = [
@@ -2084,10 +2523,14 @@ SpeakGreeting: {
       AskUserToDraw: {
     entry: [
     assign(({ context }) => {
-      const currentTask = drawingTasks[context.currentTaskIndex];
+      const currentTask = context.drawingTasks[context.currentTaskIndex];
       return {
         ...context,
-        currentPrompt: currentTask.prompt
+        currentPrompt: currentTask.prompt,
+        currentCharacter: currentTask.character,
+        currentFeedback: currentTask.feedbackType,
+
+
       };
     }),
     ({ context }) => {
@@ -2236,7 +2679,8 @@ SpeakGreeting: {
         prompt: currentTask?.prompt || "No prompt",
         image64: context.image64,
         source: "description_flow",
-        llm_response: llmResponse,
+        llmVisualdescription: llmResponse,
+        //llm_response: llmResponse,
         timestamp: new Date().toISOString(),
       }),
     });
@@ -2248,7 +2692,7 @@ SpeakGreeting: {
           content: llmResponse
         },
       ],
-      llmresponse: llmResponse
+      llmVisualdescription: llmResponse
     };
   }),
 },
@@ -2822,8 +3266,6 @@ Listen: {},
 },
   },
 
-
-
 on: {
   NEXT_TASK: [
     {
@@ -2831,17 +3273,133 @@ on: {
       actions: ({ context }) => {
         console.log("All tasks done:", context.currentTaskIndex, context.drawingTasks.length);
       },
-      target: ".PromptAndAsk.EndSession"
+      target: ".PromptAndAsk.EndSession",
     },
     {
       guard: ({ context }) => context.currentTaskIndex + 1 < context.drawingTasks.length,
-      actions: assign(({ context }) => ({
-        currentTaskIndex: context.currentTaskIndex + 1
-      })),
-      target: ".PromptAndAsk.ChangeToGreekVoice"
-    }
-  ]
+      actions: assign(({ context }) => {
+        const nextIndex = context.currentTaskIndex + 1;
+        const nextTask = context.drawingTasks[nextIndex];
+
+        // Defensive fallback for character number if undefined
+        const characterNum = nextTask.character ?? 0;
+        const characterName = CHARACTER_mapping[characterNum];
+
+        // Map feedbackType string to number (llm = 1, simple = 0)
+        const feedbackNum = nextTask.feedbackType === "llm" ? 1 : 0;
+
+        // Change robot character accordingly
+        fhChangeCharacter(characterName);
+
+        return {
+          currentTaskIndex: nextIndex,
+          feedback: feedbackNum,        // number in context
+          currentPrompt: nextTask.prompt,
+          characterName,
+        };
+      }),
+      target: ".PromptAndAsk.ChangeToGreekVoice",
+    },
+  ],
 }
+
+
+
+
+/* 
+ on: {
+  NEXT_TASK: [
+    {
+      guard: ({ context }) => context.currentTaskIndex + 1 >= context.drawingTasks.length,
+      actions: ({ context }) => {
+        console.log("All tasks done:", context.currentTaskIndex, context.drawingTasks.length);
+      },
+      target: ".PromptAndAsk.EndSession",
+    },
+    {
+      guard: ({ context }) => context.currentTaskIndex + 1 < context.drawingTasks.length,
+      actions: assign(({ context }) => {
+        const nextIndex = context.currentTaskIndex + 1;
+        const group = groups[pointer];
+
+        // Determine if we're in the second half (tasks 3–5)
+        const isSecondHalf = nextIndex >= 3;
+
+        // Feedback type: switch after 3 tasks
+        const feedback = isSecondHalf ? group[1] : group[0];
+
+        // Character: swap after 3 tasks
+        const characterVariant = isSecondHalf ? 1 - group[0] : group[0];
+        const characterName = CHARACTER_mapping[characterVariant];
+
+        // Update prompt from task list
+        const nextTask = context.drawingTasks[nextIndex];
+
+        // Change robot character
+        fhChangeCharacter(characterName);
+
+        return {
+          currentTaskIndex: nextIndex,
+          feedback,
+          currentPrompt: nextTask.prompt,
+          characterName,
+        };
+      }),
+      target: ".PromptAndAsk.ChangeToGreekVoice",
+    },
+  ],
+}
+  */
+
+// on: {
+//   NEXT_TASK: [
+//     {
+//       guard: ({ context }) => context.currentTaskIndex + 1 >= context.drawingTasks.length,
+//       actions: ({ context }) => {
+//         console.log("All tasks done:", context.currentTaskIndex, context.drawingTasks.length);
+//       },
+//       target: ".PromptAndAsk.EndSession",
+//     },
+//     {
+//       guard: ({ context }) => context.currentTaskIndex + 1 < context.drawingTasks.length,
+//       actions: assign(({ context }) => {
+//         const nextIndex = context.currentTaskIndex + 1;
+//         const nextTask = context.drawingTasks[nextIndex];
+//         const nextFeedbackType = nextTask.feedbackType === "llm" ? 1 : 0;
+
+//         const nextCharacter = CHARACTER_mapping[groups[pointer][0]]; // update based on pointer
+
+//         return {
+//           currentTaskIndex: nextIndex,
+//           feedback: nextFeedbackType,
+//           currentPrompt: nextTask.prompt,
+//           characterName: nextCharacter, // ✅ update here!
+//         };
+//       }),
+//       target: ".PromptAndAsk.ChangeToGreekVoice",
+//     },
+//   ],
+// }
+
+
+// on: {
+//   NEXT_TASK: [
+//     {
+//       guard: ({ context }) => context.currentTaskIndex + 1 >= context.drawingTasks.length,
+//       actions: ({ context }) => {
+//         console.log("All tasks done:", context.currentTaskIndex, context.drawingTasks.length);
+//       },
+//       target: ".PromptAndAsk.EndSession"
+//     },
+//     {
+//       guard: ({ context }) => context.currentTaskIndex + 1 < context.drawingTasks.length,
+//       actions: assign(({ context }) => ({
+//         currentTaskIndex: context.currentTaskIndex + 1
+//       })),
+//       target: ".PromptAndAsk.ChangeToGreekVoice"
+//     }
+//   ]
+// }
 
   
   
@@ -3017,10 +3575,10 @@ export function initWhiteboard() {
   document.getElementById("eraseButton")?.addEventListener("click", () => changeColor("white"));
   document.getElementById("clearButton")?.addEventListener("click", clearCanvas);
 
-  document.getElementById("captureButton")?.addEventListener("click", () => {
-    const imageData = captureCanvasImage();
-    console.log("Captured Image Base64:", imageData);
-  });
+  // document.getElementById("captureButton")?.addEventListener("click", () => {
+  //   const imageData = captureCanvasImage();
+  //   console.log("Captured Image Base64:", imageData);
+  // });
 
   document.getElementById("undoButton")?.addEventListener("click", undoLastMove);
 }
